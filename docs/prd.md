@@ -14,7 +14,7 @@
 | 2g | Pinned messages | 🔲 Not started |
 | 3 | Routing (mirror + conditional) | 🔲 Design doc written |
 | 4 | CLI | 🔲 Not started |
-| 5 | Relay (cross-machine) | 🔲 Not started |
+| 5 | Relay (cross-machine) | 🔲 Design doc written |
 | 6 | Agent daemon | 🔲 Not started |
 
 ---
@@ -232,5 +232,5 @@ pinet/
 2. **Phase 2b: Delivery modes** — interrupt/digest/silent. Real UX improvement.
 3. **Phase 3: Routing** — mirror + conditional. Design ready.
 4. **Phase 4: CLI** — observe without pi. Useful immediately.
-5. **Phase 5: Relay** — cross-machine. Big effort.
+5. **Phase 5: Relay** — cross-machine. Design doc at [docs/crossmachine.md](crossmachine.md). Scale test: 100 agents, 5 teams, 10 machines.
 6. **Phase 6: Daemon** — always-on agents. After relay.
