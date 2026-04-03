@@ -129,10 +129,14 @@ export function readAllPresence(): PresenceEntry[] {
     const entry = readJson<PresenceEntry>(path.join(dir, file));
     if (!entry) continue;
 
-    // Clean up stale online entries (dead PID)
-    if (entry.status === "online" && !isProcessAlive(entry.pid)) {
-      try { fs.unlinkSync(path.join(dir, file)); } catch {}
-      continue;
+    // Clean up stale online entries (dead PID or no heartbeat for >60s)
+    if (entry.status === "online") {
+      const age = Date.now() - new Date(entry.lastSeen).getTime();
+      const stale = age > 60_000; // no heartbeat for 60s
+      if (!isProcessAlive(entry.pid) || stale) {
+        try { fs.unlinkSync(path.join(dir, file)); } catch {}
+        continue;
+      }
     }
     entries.push(entry);
   }

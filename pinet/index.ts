@@ -138,6 +138,12 @@ function doLogin(pi: ExtensionAPI, name: string, teams: string[], teamRoles: Rec
   if (backlog > 0) lines.push(`${backlog} unread DMs`);
 
   ctx.ui?.notify?.(lines.join("\n  "), "success");
+
+  // Presence heartbeat — refresh lastSeen every 30s
+  const heartbeat = setInterval(() => {
+    if (myName) writePresence(myName, "online");
+    else clearInterval(heartbeat);
+  }, 30_000);
 }
 
 // =============================================================================
