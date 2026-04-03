@@ -92,35 +92,216 @@ Two machines writing to the same mailbox file. The sync daemon serializes — re
 
 ---
 
-## The relay server
+## The relay server — spec
 
-Single Node.js process. WebSocket server.
+### Overview
 
-### Behavior
+Single Node.js process (~150 lines). WebSocket server. Zero disk state. Zero PiNet knowledge.
 
-- Accept connections with auth token
-- Each connection is a "machine"
-- On message from machine A: broadcast to all other connected machines
-- No disk persistence — messages exist only in transit
-- If a machine is disconnected when a message passes through, it misses it
+The relay is a **room-based fan-out**. A room = one PiNet network (identified by token). All machines in the same room see each other's messages.
 
-### Message format
+### Protocol
+
+All messages are JSON text frames over WebSocket.
+
+#### Client → Relay
 
 ```json
-{
-  "type": "append",
-  "path": "mailboxes/BackendDev.mailbox.jsonl",
-  "lines": [
-    "{\"id\":\"...\",\"from\":\"FrontendDev\",\"to\":\"BackendDev\",\"body\":\"hi\",\"timestamp\":\"...\"}"
-  ]
+{ "type": "auth", "token": "secret", "machine": "johann-mac" }
+```
+First message after connect. Required. If token is invalid or already connected with same machine ID, close with code 4001.
+
+```json
+{ "type": "append", "path": "mailboxes/BackendDev.mailbox.jsonl", "lines": ["{...}"] }
+```
+File append. `path` is relative to `~/.pinet/`. `lines` is an array of raw JSONL lines. The relay does NOT parse these.
+
+```json
+{ "type": "write", "path": "presence/BackendDev.json", "content": "{...}" }
+```
+Full file write (for presence files, meta.json, etc). `content` is a raw string.
+
+```json
+{ "type": "ping" }
+```
+Keep-alive. Relay responds with pong.
+
+#### Relay → Client
+
+```json
+{ "type": "append", "from": "johann-mac", "path": "mailboxes/BackendDev.mailbox.jsonl", "lines": ["{...}"] }
+```
+Fan-out from another machine. Same shape as client message, plus `from` field.
+
+```json
+{ "type": "write", "from": "johann-mac", "path": "presence/BackendDev.json", "content": "{...}" }
+```
+Fan-out of a full file write.
+
+```json
+{ "type": "pong" }
+```
+
+```json
+{ "type": "join", "machine": "cloud-vm" }
+```
+Broadcast when a new machine connects. Lets other sync daemons know a peer appeared.
+
+```json
+{ "type": "leave", "machine": "cloud-vm" }
+```
+Broadcast when a machine disconnects (clean close or timeout).
+
+```json
+{ "type": "welcome", "machines": ["johann-mac", "cloud-vm"] }
+```
+Sent to client after successful auth. Lists currently connected machines.
+
+### Connection lifecycle
+
+```
+Client connects
+  → Relay waits for auth message (5s timeout, then close)
+  → Client sends { type: "auth", token, machine }
+  → Relay validates:
+      - token matches --token flag
+      - machine ID not already connected (close old connection if it is)
+  → Relay sends { type: "welcome", machines: [...] }
+  → Relay broadcasts { type: "join", machine } to all other connections
+  → Client is now "connected"
+  → On client message: forward to all other connections in same room
+  → On client disconnect: broadcast { type: "leave" } to others
+```
+
+### Offline behavior
+
+**The relay does not persist messages.** If machine B is disconnected:
+- Messages for machine B's agents queue in machine A's `~/.pinet/` files
+- When machine B reconnects, its sync daemon does NOT get missed messages from the relay
+- Machine B's agents see any messages that were written to their mailbox files locally (from before disconnect)
+- But messages that arrived on machine A while B was offline are NOT forwarded
+
+This is a deliberate tradeoff. The relay is a live pipe, not a message broker.
+
+**Mitigation**: sync daemon writes a watermark on graceful shutdown. On reconnect, the sync daemon could request catchup from peers. For PoC: not implemented. If you need guaranteed delivery, don't take machines offline.
+
+### Message ordering
+
+WebSocket guarantees in-order delivery on a single connection. The relay forwards messages in the order it receives them. Two machines sending simultaneously — relay processes sequentially (Node.js event loop). No ordering guarantee across machines, but within one machine's writes, order is preserved.
+
+For PiNet: ordering within a single mailbox file is guaranteed (one writer per send). Across mailboxes: doesn't matter.
+
+### Heartbeat and dead connection detection
+
+- Relay sends WebSocket ping frames every 30 seconds
+- Expects pong within 10 seconds
+- No pong → close connection, broadcast `leave`
+- Client should also send application-level `ping` every 30s as backup
+
+### Crash recovery
+
+If the relay crashes:
+- All sync daemons detect disconnect (WebSocket close event)
+- Sync daemons reconnect with exponential backoff (1s, 2s, 4s, 8s, max 30s)
+- On reconnect: send auth, receive welcome, resume syncing
+- Messages sent during relay downtime: stay local, never forwarded. No retry.
+
+If a sync daemon crashes:
+- Relay detects via heartbeat timeout or WebSocket close
+- Broadcasts `leave` to others
+- Other machines' agents see the machine went offline (via presence files)
+
+### Concurrency model
+
+Relay is single-threaded (Node.js). All message processing is sequential per event loop tick. No race conditions possible within the relay.
+
+Fan-out is O(N) where N = connected machines. At 10 machines, one message = 9 WebSocket sends. At 100 machines = 99 sends. Each send is ~500 bytes. 100 messages/sec × 99 machines = 9,900 sends/sec × 500 bytes = ~5MB/sec. Within Node.js capability.
+
+### Implementation sketch
+
+```javascript
+// pinet-relay.js — ~100 lines
+const WebSocket = require("ws");
+
+const args = process.argv.slice(2);
+const port = arg(args, "--port", "3000");
+const token = arg(args, "--token", undefined);
+
+if (!token) { console.error("--token required"); process.exit(1); }
+
+const wss = new WebSocket.Server({ port: +port });
+const machines = new Map(); // machineId → ws
+
+wss.on("connection", (ws) => {
+  let authenticated = false;
+  let machineId = null;
+  const timeout = setTimeout(() => { if (!authenticated) ws.close(4001, "auth timeout"); }, 5000);
+
+  ws.on("message", (raw) => {
+    const msg = JSON.parse(raw);
+
+    if (!authenticated) {
+      if (msg.type !== "auth") { ws.close(4001, "auth required"); return; }
+      if (msg.token !== token) { ws.close(4001, "bad token"); return; }
+      // Kick existing connection with same machine ID
+      if (machines.has(msg.machine)) machines.get(msg.machine).close(4002, "replaced");
+      authenticated = true;
+      machineId = msg.machine;
+      machines.set(machineId, ws);
+      ws.send(JSON.stringify({ type: "welcome", machines: [...machines.keys()].filter(k => k !== machineId) }));
+      broadcast({ type: "join", machine: machineId }, ws);
+      return;
+    }
+
+    if (msg.type === "ping") { ws.send(JSON.stringify({ type: "pong" })); return; }
+
+    // Fan out to all other machines
+    const fwd = { ...msg, from: machineId };
+    broadcast(fwd, ws);
+  });
+
+  ws.on("close", () => {
+    clearTimeout(timeout);
+    if (machineId) {
+      machines.delete(machineId);
+      broadcast({ type: "leave", machine: machineId });
+    }
+  });
+});
+
+function broadcast(msg, exclude) {
+  const raw = JSON.stringify(msg);
+  for (const [id, ws] of machines) {
+    if (ws !== exclude && ws.readyState === WebSocket.OPEN) ws.send(raw);
+  }
+}
+
+function arg(args, flag, fallback) {
+  const i = args.indexOf(flag);
+  return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 }
 ```
 
-The relay just forwards these. It doesn't parse the lines.
+### CLI
 
-### Initial sync
+```bash
+# Start relay
+npx pinet-relay --port 3000 --token my-secret
 
-When a machine connects, does it get full history? No — only messages from now on. Each machine's `~/.pinet/` is its own local history. If you want history, pre-sync via rsync/scp before starting.
+# Start relay with TLS (future)
+npx pinet-relay --port 3000 --token my-secret --tls-key ./key.pem --tls-cert ./cert.pem
+```
+
+### Deployment options
+
+| Where | How | Notes |
+|-------|-----|-------|
+| Same machine as agents | `npx pinet-relay &` | Simplest. Zero network latency. |
+| LAN machine | `ssh` + `npx pinet-relay` | One relay for all local machines |
+| Cloud VM | Docker or systemd | Always-on. Machines connect over internet. |
+| Fly.io / Railway | Deploy as container | Free tier sufficient for small networks |
+
+Relay uses ~20MB RAM, zero disk, zero CPU when idle.
 
 ---
 
