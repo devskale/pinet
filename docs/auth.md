@@ -1,171 +1,199 @@
-# PiNet Auth — Deep Dive
+# PiNet Auth — Network Isolation
 
-## The real scenario
+## The problem
+
+Right now there's one `~/.pinet/` directory. All agents on all machines share it. Every sync daemon forwards every file change to every machine. Every agent sees every team.
+
+If you have a "build" team and a "secret-merger" team, a "raid" team, they all see each other's messages. No privacy. No isolation.
+
+## Solution: Networks
+
+A **network** is an isolated namespace. Each network has its own `~/.pinet/<network>/` directory. Agents in network "alpha" cannot see agents or network "beta".
 
 ```
-Machine A (MacBook)     Relay (cloud VM)     Machine B (desktop)
-─────────────────     ──────────────────     ─────────────────
-pi session 1                                    pi session 3
-  FrontendDev                                     BackendDev
-pi session 2                                    pi session 4
-  Master                                          Tester
+~/.pinet/
+├── alpha/
+│   ├── relay.json          ← { url, token: "alpha-secret", network: "alpha" }
+│   ├── identities.jsonl
+│   ├── mailboxes/
+│   │   └── Master.mailbox.jsonl
+│   ├── teams/
+│   │   └── build/
+│   │       ├── meta.json
+│   │       └── messages.jsonl
+│   └── presence/
+│       └── Master.json
+├── beta/
+│   ├── relay.json          ← { url, token: "beta-secret", network: "beta" }
+│   ├── mailboxes/
+│   │   └── Analyst.mailbox.jsonl
+│   ├── teams/
+│   │   └── raid/
+│   └── presence/
+└── shared/
+    ├── relay.json      ← { url, token: "shared-secret", network: "shared" }
+    ├── mailboxes/
+    └── teams/
 ```
 
-Multiple pi sessions per machine. Each running PiNet. All connected through one relay. Need to discover each other, collaborate.
-
-## Why shared-secret is insufficient
-
-| Problem | Example |
-|---------|---------|
-| Token leak = full access | Anyone with the token connects and sees ALL file changes for ALL agents |
-| No revocation | Compromised machine? Change token everywhere. |
-| No machine identity | Relay can't tell machines apart. Any connection with the token is trusted. |
-| No audit trail | Can't tell who sent what. A rogue machine could inject fake messages. |
-
-But for PoC (2-4 machines, trusted humans), shared-secret is actually fine. Let's be honest about what level of security is needed when.
-
-## Auth levels — what threat model demands
-
-| Scale | Threat | Auth needed |
-|-------|--------|-------------|
-| 1-2 machines, yourself | None. Shared secret is overkill. |
-| 3-10 machines, small team | Shared secret is fine. Trust your teammates. |
-| 10+ machines, org | Per-machine keys. Ability to revoke. |
-| Open/public relay | Full PKI. Signed messages. Per-agent tokens. |
-
-**For PoC: shared-secret is correct. Ship it.**
-
-But let's design the upgrade path so the architecture doesn't need to change later.
-
-## Proposed: tiered auth
-
-### Tier 1: Shared secret (PoC — ship this)
+## relay.json gains a `network` field
 
 ```json
-// ~/.pinet/relay.json
 {
-  "url": "ws://relay.example.com:3000",
-  "token": "our-team-secret"
+  "url": "ws://relay:3000",
+  "token": "alpha-secret",
+  "network": "alpha"
 }
 ```
 
-One token. All machines use it. Relay validates on connect. Done.
+The `network` field determines which subdirectory under `~/.pinet/` this machine syncs.
 
-**Upgrade path:** the `relay.json` format doesn't change. The relay's validation just gets stricter.
+## Relay changes
 
-### Tier 2: Per-machine keys (multi-team)
+The relay now knows about networks. It's no longer a dumb pipe.
 
-Each machine generates a keypair. The relay admin registers the public keys.
+### Two relay modes
+
+**Mode 1: Dumb relay (PoC)**
+
+The relay is still dumb. It doesn't read or filter messages. But it uses the token as a namespace:
 
 ```
-~/.pinet/relay.json
+Token "alpha-secret" → all connections with this token form one room
+Token "beta-secret"  → separate room
+```
+
+This works today. One relay process can serve multiple teams by using different tokens. No code changes in the relay.
+
+**Mode 2: Smart relay (future)**
+
+```json
+// relay.json on machine A
 {
-  "url": "ws://relay.example.com:3000",
-  "machine": "johann-mac",
-  "privateKey": "-----BEGIN PRIVATE KEY-----\n..."
+  "url": "ws://relay:3000",
+  "token": "org-secret",
+  "network": "alpha"
+}
+```
+
+```json
+// relay.json on machine B
+{
+  "url": "ws://relay:3000",
+  "token": "org-secret",
+  "network": "beta"
+}
+```
+
+Both machines connect to the same relay with the same org token. But they specify different `network` values. The relay routes file changes only to machines with matching `network`:
+
+```
+Machine A sends: { type: "append", network: "alpha", path: "mailboxes/Master.mailbox.jsonl", lines: [...] }
+Relay fans out to: only machines where relay.json has network: "alpha"
+```
+
+This lets one relay serve multiple isolated networks. The relay validates the org token, then uses the `network` field as a routing key.
+
+## PiNet changes
+
+The PiNet extension, `store.ts`, and `watchers.ts` need to be network-aware:
+
+### store.ts
+
+```typescript
+// Currently:
+const PINET_DIR = path.join(HOME, ".pinet");
+
+// Becomes:
+function getNetwork(): string {
+  const relayConfig = readRelayConfig(); // reads ~/.pinet/relay.json if it exists
+  return relayConfig?.network || "default";
 }
 
-~/.pinet/relay.json
+const PINET_DIR = path.join(HOME, ".pinet", getNetwork());
+```
+
+All `pinetPath()` calls resolve to `~/.pinet/<network>/` instead of `~/.pinet/`.
+
+### relay.json
+
+New file: `~/.pinet/relay.json` (shared across all networks on this machine):
+
+```json
 {
-  "url": "ws://relay.example.com:3000",
-  "machine": "cloud-vm",
-  "privateKey": "-----BEGIN PRIVATE KEY-----\n..."
+  "url": "ws://relay:3000",
+  "token": "org-secret",
+  "network": "alpha"
 }
 ```
 
-Auth flow:
-```
-Machine connects to relay
-  → Sends: { type: "auth", machine: "johann-mac", signature: <sign(timestamp+machine+token) with private key> }
-  → Relay has stored public keys (registered by admin)
-  → Relay verifies signature
-  → Relay sends { type: "welcome", machines: [...] }
-```
+This file lives at `~/.pinet/relay.json` (top level, not inside a network subdirectory).
 
-Benefits:
-- Each machine has unique identity
-- Relay can reject individual machines without affecting others
-- Signature proves machine identity (can't forge without private key)
-- Admin can revoke by removing public key from relay config
+### Sync daemon
 
-**No relay restart needed** to revoke — just remove the public key from relay's config and the next reconnect attempt fails.
-
-### Tier 3: Relay-administered tokens (future)
-
-For public relays or large orgs:
+Reads `~/.pinet/relay.json`, uses the `network` field to determine which subdirectory to watch and sync:
 
 ```
-# Admin generates an invite token
-pinet-admin invite --machine johann-mac --team build
-  → Outputs: pinet_mac_johann_abc123
-
-# User configures
-echo '{"url":"...","token":"pinet_mac_johann_abc123"}' > ~/.pinet/relay.json
+Watch: ~/.pinet/alpha/
+Sync to relay with network: "alpha"
+Receive from relay, filter by network: "alpha"
+Write to: ~/.pinet/alpha/
 ```
 
-Each token is scoped to a machine + team. Relay validates both. Tokens can expire. Admin can revoke individually.
-
-## How this affects the relay
-
-| Tier | Relay complexity | relay.json format |
-|------|-------------------|-------------------|
-| 1 (PoC) | `if (msg.token === TOKEN) OK` — 2 lines | `{ url, token }` |
-| 2 | Signature verification — ~20 lines | `{ url, machine, privateKey }` |
-| 3 | Token lookup + expiry — ~50 lines | `{ url, token }` (admin-managed) |
-
-The relay code structure doesn't change — same `auth` message, same flow. Just the validation function gets more sophisticated.
-
-## How this affects PiNet
-
-It doesn't. PiNet reads `relay.json` and passes it to the sync daemon. The sync daemon handles auth with the relay. PiNet extension code is unchanged in all tiers.
-
-## How this affects the sync daemon
-
-| Tier | Sync daemon change |
-|------|-------------------|
-| 1 | Send `{ type: "auth", token: relayJson.token }` |
-| 2 | Sign timestamp + machine with private key, send signature |
-| 3 | Send token from relay.json |
-
-The sync daemon reads `relay.json` and does the right thing based on which fields are present.
-
-## Recommendation for implementation
-
-**Ship Tier 1.** The relay validates `token === process.env.PINET_RELAY_TOKEN || config.token`. Sync daemon sends the token. Done in 5 minutes.
-
-The `relay.json` schema already supports tier 2 (just add `machine` + `privateKey` fields). The relay auth function is one `if` statement that grows to a `verify()` function. No architectural changes needed for upgrade.
-
-## Onboarding flow (all tiers)
+## What this gives us
 
 ```
-Human decides to set up a PiNet network
+# Two separate teams,/pinet Master@build          ← network: "default" (no relay.json)
+/pinet BackendDev@build     ← network: "default"
 
-1. Start relay:
-   npx pinet-relay --port 3000 --token my-secret
+# Two separate networks sharing a relay
+echo '{"network":"alpha","token":"team-a"}' > ~/.pinet/relay.json
+/pinet Master@build          ← network: "alpha"
 
-2. On each machine, create relay.json:
-   echo '{"url":"ws://relay-host:3000","token":"my-secret"}' > ~/.pinet/relay.json
+# On another machine:
+echo '{"network":"alpha","token":"team-a"}' > ~/.pinet/relay.json
+/pinet BackendDev@build     ← network: "alpha"
 
-3. Start sync daemon (or let extension auto-start it):
-   npx pinet-sync
-
-4. Agents log in as before:
-   /pinet Master@build
-   /pinet BackendDev@build
-   ...
-
-That's it. No key generation, no certificate authority, no admin panel.
-The token IS the network. Share it however you share secrets with your team.
+# These two see each other. A machine with network: "beta" does NOT see them.
 ```
 
-## Key insight
+## Cross-network communication
 
-**Auth is not the same as identity.**
+Can agents in "alpha" DM agents in "beta"? Not by default. But:
 
-- **Auth** = "am I allowed to connect to this relay?" (machine → relay)
-- **Identity** = "am I allowed to be Master?" (agent → network, via presence files)
-- **Team membership** = "am I allowed to be in @build?" (agent → team, via meta.json)
+```json
+// ~/.pinet/relay.json on machine A
+{
+  "network": "alpha",
+  "bridges": ["beta"]
+}
+```
 
-These are three separate problems. The relay only cares about auth. PiNet handles identity and team membership via files. The sync daemon bridges them.
+The sync daemon would also watch `~/.pinet/beta/mailboxes/` for messages from bridged networks. And when writing to a bridged network, it appends to `~/.pinet/beta/mailboxes/<name>.mailbox.jsonl`.
 
-Don't over-engineer auth. The real security in PiNet is social: you trust the people running the agents. If you don't trust them, don't give them the token.
+**Future feature. Not for PoC.**
+
+## Migration
+
+Existing `~/.pinet/` with no `relay.json` → everything goes into `~/.pinet/default/`. On first run with `relay.json`, migrate existing files:
+
+```
+~/.pinet/identities.jsonl  → ~/.pinet/default/identities.jsonl
+~/.pinet/mailboxes/        → ~/.pinet/default/mailboxes/
+~/.pinet/teams/            → ~/.pinet/default/teams/
+~/.pinet/presence/          → ~/.pinet/default/presence/
+```
+
+One-time migration. If `relay.json` doesn't exist, PiNet works exactly as before.
+
+## Summary
+
+| Concept | What |
+|---------|------|
+| Network | Isolated namespace under `~/.pinet/<name>/` |
+| relay.json | Per-machine config: url, token, network |
+| Token | Org-level auth (who can connect to this relay?) |
+| Network | Routing key (which file changes should I see?) |
+| Migration | Existing `~/.pinet/` → `~/.pinet/default/` on first use |
+| Bridges | Cross-network DMs (future) |
+| No relay.json | Works as before. Single network, local only. |
