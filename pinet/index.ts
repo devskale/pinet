@@ -13,6 +13,8 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import * as child_process from "node:child_process";
+import * as path from "node:path";
 import {
   pinetPath, exists, readFile, isProcessAlive,
   readAllPresence, readJsonl, readTeamMessages,
@@ -36,6 +38,7 @@ import {
 
 let myName: string | null = null;
 let myTeams: string[] = [];
+let syncProcess: child_process.ChildProcess | null = null;
 
 // =============================================================================
 // Parse "Name@team1,team2"
@@ -114,6 +117,9 @@ function doLogin(pi: ExtensionAPI, name: string, teams: string[], ctx: any) {
   }
   if (teams.length > 0) registerTeamTools(pi);
 
+  // Start sync daemon if relay.json exists
+  startSyncDaemon(ctx);
+
   // Notify user
   const backlog =
     readJsonl(pinetPath("mailboxes", `${name}.mailbox.jsonl`)).length -
@@ -139,6 +145,7 @@ function doLogout(ctx: any) {
   writePresence(myName, "offline");
   resetWatchers();
   resetToolIdentity();
+  stopSyncDaemon();
 
   const name = myName;
   myName = null;
@@ -179,6 +186,49 @@ function showStatus(ctx: any) {
   if (dmUnread > 0) lines.push(`${dmUnread} unread DM${dmUnread !== 1 ? "s" : ""}`);
 
   ctx.ui?.notify?.(lines.join("\n  "), "info");
+}
+
+// =============================================================================
+// Sync daemon (relay bridge)
+// =============================================================================
+
+function startSyncDaemon(ctx: any) {
+  const relayConfig = pinetPath("relay.json");
+  if (!exists(relayConfig)) return; // no relay configured, local only
+
+  if (syncProcess && !syncProcess.killed) return; // already running
+
+  const syncPath = path.join(__dirname, "sync.js");
+  if (!exists(syncPath)) {
+    ctx.ui?.notify?.("sync.js not found — relay sync disabled", "warning");
+    return;
+  }
+
+  syncProcess = child_process.fork(syncPath, [], {
+    stdio: "pipe",
+    detached: false,
+  });
+
+  syncProcess.on("error", (err) => {
+    ctx.ui?.notify?.(`Sync daemon error: ${err.message}`, "error");
+    syncProcess = null;
+  });
+
+  syncProcess.on("exit", (code) => {
+    if (code && code !== 0) {
+      ctx.ui?.notify?.(`Sync daemon exited (code ${code})`, "warning");
+    }
+    syncProcess = null;
+  });
+
+  ctx.ui?.notify?.("Sync daemon started — relay bridge active", "info");
+}
+
+function stopSyncDaemon() {
+  if (syncProcess && !syncProcess.killed) {
+    syncProcess.kill();
+    syncProcess = null;
+  }
 }
 
 // =============================================================================
@@ -230,5 +280,6 @@ export default function (pi: ExtensionAPI) {
       writePresence(myName, "offline");
       resetWatchers();
     }
+    stopSyncDaemon();
   });
 }
