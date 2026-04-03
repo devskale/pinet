@@ -13,3 +13,5 @@ backend/
 
 # PiNet runtime data (lives in ~/.pinet/)
 # Nothing to track here — state is per-machine
+.pi/
+.pinet/

@@ -150,9 +150,9 @@ All state lives in `~/.pinet/` on the local machine. No database, no server — 
 ```
 ~/.pinet/
 ├── identities.jsonl           # append-only login log (all-time)
-├── personal/
-│   ├── BackendDev.jsonl       # messages TO BackendDev
-│   └── FrontendDev.jsonl      # messages TO FrontendDev
+├── mailboxes/
+│   ├── BackendDev.mailbox.jsonl
+│   └── FrontendDev.mailbox.jsonl
 └── presence/
     ├── BackendDev.json        # current online/offline status
     └── FrontendDev.json
@@ -179,7 +179,7 @@ On login, four things happen:
 
    Only **one agent per name** can be online at a time. If you try to log in as "BackendDev" while another live process holds that name, login is rejected.
 
-3. **Mailbox watcher starts** — `fs.watch` on `~/.pinet/personal/`, filtered to `<yourname>.jsonl`. Debounced 100ms to handle rapid filesystem events.
+3. **Mailbox watcher starts** — `fs.watch` on `~/.pinet/mailboxes/`, filtered to `<yourname>.mailbox.jsonl`. Debounced 100ms to handle rapid filesystem events.
 
 4. **Tools registered** — `pinet_send`, `pinet_mail`, `pinet_list` become available to the LLM.
 
@@ -239,14 +239,14 @@ Here's exactly what happens when FrontendDev and BackendDev talk to each other.
 ### Setup
 
 Both agents start pi in their directories and run `/pinet <name>`. After login each agent has:
-- A `fs.watch` on `~/.pinet/personal/` filtering for their own `.jsonl` file
+- A `fs.watch` on `~/.pinet/mailboxes/` filtering for their own `.mailbox.jsonl` file
 - An in-memory read pointer (line count) set to the current mailbox size
 - Three tools registered: `pinet_send`, `pinet_mail`, `pinet_list`
 
 ### FrontendDev asks BackendDev a question
 
 1. FrontendDev's LLM decides to message BackendDev → calls `pinet_send({ to: "BackendDev", message: "Is the API up yet?" })`
-2. PiNet appends one JSON line to `~/.pinet/personal/BackendDev.jsonl`
+2. PiNet appends one JSON line to `~/.pinet/mailboxes/BackendDev.mailbox.jsonl`
 3. BackendDev's `fs.watch` fires (debounced 100ms)
 4. BackendDev reads `BackendDev.jsonl`, slices new lines beyond its read pointer, advances the pointer
 5. PiNet calls `pi.sendMessage({ content: "[PiNet] 1 new message:\nFrontendDev: Is the API up yet?" }, { triggerTurn: true })`
@@ -255,7 +255,7 @@ Both agents start pi in their directories and run `/pinet <name>`. After login e
 ### BackendDev replies
 
 7. BackendDev's LLM calls `pinet_send({ to: "FrontendDev", message: "API is live on localhost:3000!" })`
-8. PiNet appends one JSON line to `~/.pinet/personal/FrontendDev.jsonl`
+8. PiNet appends one JSON line to `~/.pinet/mailboxes/FrontendDev.mailbox.jsonl`
 9. FrontendDev's `fs.watch` fires
 10. Same flow in reverse: new line read → `pi.sendMessage({ triggerTurn: true })` → FrontendDev's LLM sees the reply
 
@@ -264,12 +264,12 @@ Both agents start pi in their directories and run `/pinet <name>`. After login e
 ```
 FrontendDev (pid 48123)                     BackendDev (pid 48199)
 ~~~~~~~~~~~~~~~~~~~~~                       ~~~~~~~~~~~~~~~~~~~~~
-watching: personal/FrontendDev.jsonl         watching: personal/BackendDev.jsonl
+watching: mailboxes/FrontendDev.mailbox.jsonl   watching: mailboxes/BackendDev.mailbox.jsonl
 read pointer: 0 lines                        read pointer: 0 lines
 
   ┌─── pinet_send("BackendDev", "API up?") ───┐
   │                                            ▼
-  │                            append to personal/BackendDev.jsonl
+  │                            append to mailboxes/BackendDev.mailbox.jsonl
   │                                            │
   │                                 fs.watch fires (100ms debounce)
   │                                            │
@@ -282,7 +282,7 @@ read pointer: 0 lines                        read pointer: 0 lines
   │                              ┌── pinet_send("FrontendDev", "Live!") ──┐
   │                              │                                         │
   ▼                              │                                         │
-append to personal/FrontendDev.jsonl                                        │
+append to mailboxes/FrontendDev.mailbox.jsonl                                    │
   │                              │                                         │
 fs.watch fires                  │                                         │
   │                              │                                         │

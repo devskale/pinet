@@ -130,7 +130,7 @@ function readAllPresence(): PresenceEntry[] {
 
 function readOwnMailbox(): PersonalMessage[] {
   if (!myIdentity) return [];
-  return readJsonl(pinetPath("personal", `${myIdentity.name}.jsonl`));
+  return readJsonl(pinetPath("mailboxes", `${myIdentity.name}.mailbox.jsonl`));
 }
 
 // =============================================================================
@@ -163,7 +163,7 @@ function deliverMessages(pi: ExtensionAPI, messages: PersonalMessage[]) {
 function startWatcher(pi: ExtensionAPI) {
   if (!myIdentity) return;
 
-  const mailboxPath = pinetPath("personal", `${myIdentity.name}.jsonl`);
+  const mailboxPath = pinetPath("mailboxes", `${myIdentity.name}.mailbox.jsonl`);
   ensureDir(path.dirname(mailboxPath));
 
   // Capture baseline
@@ -177,7 +177,7 @@ function startWatcher(pi: ExtensionAPI) {
   try {
     myWatcher = fs.watch(path.dirname(mailboxPath), (eventType, filename) => {
       if (!filename || !filename.endsWith(".jsonl")) return;
-      if (filename !== `${myIdentity!.name}.jsonl`) return;
+      if (filename !== `${myIdentity!.name}.mailbox.jsonl`) return;
 
       // Debounce rapid events
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -252,7 +252,7 @@ function registerTools(pi: ExtensionAPI) {
         timestamp: new Date().toISOString(),
       };
 
-      const mailboxPath = pinetPath("personal", `${to}.jsonl`);
+      const mailboxPath = pinetPath("mailboxes", `${to}.mailbox.jsonl`);
       appendJsonl(mailboxPath, msg);
 
       return {
