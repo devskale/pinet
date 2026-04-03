@@ -1,58 +1,68 @@
-# Todo App — Shared Goal
+# Todo App — Team Scenario
 
-Build a full-stack todo application. Three agents collaborate: one oversees, two build.
+Build a full-stack todo application. Four agents in team "build".
+
+## Setup
+
+```bash
+# Prepare workspaces
+for dir in frontend backend tester mastermaster; do
+  mkdir -p $dir/.pi/extensions
+  ln -s $(pwd)/pinet $dir/.pi/extensions/pinet
+done
+
+# Start 4 tmux panes, each: cd <dir> && pi
+# Then in each: /pinet <Name>@build
+```
 
 ## Roles
 
-### Master (overseer)
+### Master (`/pinet Master@build`)
 
-Does not write code. Reads this spec, assigns tasks, monitors progress, reviews work.
+Does not write code. Coordinates the team.
 
-Responsibilities:
-- Read the full spec and understand the architecture
-- Tell BackendDev to start building the API
-- Tell FrontendDev to stand by until the API is ready
-- Review BackendDev's and FrontendDev's code by reading their files
-- Resolve blockers and answer questions
-- Declare the project done when everything works
+- Read this spec
+- Use `pinet_team_send` to assign tasks to the team
+- Use `pinet_send` for 1:1 conversations
+- Monitor progress, resolve blockers
+- Declare done when everything works
 
-### BackendDev
+### BackendDev (`/pinet BackendDev@build`)
 
-Builds the REST API in `../backend/` using Node.js + Express (no DB, in-memory store).
+Build the REST API in `./backend/` using Node.js + Express.
 
 Endpoints:
 - `GET /todos` — list all todos
-- `POST /todos` — create a todo `{ title: string }` → returns `{ id, title, done, createdAt }`
-- `PATCH /todos/:id` — update a todo `{ title?, done? }`
-- `DELETE /todos/:id` — delete a todo
+- `POST /todos` — create `{ title }` → `{ id, title, done, createdAt }`
+- `PATCH /todos/:id` — update `{ title?, done? }`
+- `DELETE /todos/:id` — delete
 
-Rules:
-- Port 3000
-- JSON responses
-- CORS enabled (for frontend dev server)
-- Start with 2 seed todos
-- Report to Master when the API is running
-- Answer FrontendDev's questions about the API directly
+Rules: Port 3000, JSON, CORS enabled, 2 seed todos.
 
-### FrontendDev
+### FrontendDev (`/pinet FrontendDev@build`)
 
-Builds a single-page app in `../frontend/` using vanilla HTML + CSS + JS (no framework).
+Build a single-page app in `./frontend/` using vanilla HTML + CSS + JS.
 
-Requirements:
-- Show list of todos
-- Add new todo (input + button)
-- Toggle done/undone (checkbox)
-- Delete todo (button)
-- Fetch from `http://localhost:3000/todos`
-- Wait for Master (or BackendDev) to confirm the API is ready before starting
-- Ask BackendDev directly if the API contract is unclear
-- Report to Master when the UI is done
+Requirements: Show todos, add, toggle done, delete. Fetch from `http://localhost:3000/todos`.
+
+Wait for confirmation that the API is ready before starting.
+
+### Tester (`/pinet Tester@build`)
+
+After both API and frontend are done:
+- Validate API endpoints with curl
+- Test the frontend loads and connects
+- Report results to the team
 
 ## Coordination
 
-- **Master → BackendDev**: assign backend task, review code, approve
-- **Master → FrontendDev**: tell when to start, review code, approve
-- **BackendDev → Master**: report API ready, report issues
-- **FrontendDev → Master**: report UI done, report issues
-- **FrontendDev ↔ BackendDev**: clarify API details directly (no need to go through Master)
-- All agents use PiNet tools: `pinet_send`, `pinet_mail`, `pinet_list`
+Use team chat (`pinet_team_send`) for announcements and status updates.
+Use personal DMs (`pinet_send`) for 1:1 questions.
+
+Expected flow:
+1. Master: "BackendDev: build the API. FrontendDev: stand by. Tester: stand by."
+2. BackendDev: "API live on :3000."
+3. Master: "FrontendDev: go."
+4. FrontendDev: "Frontend done."
+5. Tester: "API passes. Frontend works. Done ✅"
+6. Master: "Ship it."

@@ -4,14 +4,17 @@ node_modules/
 # jot is an external repo
 jot/
 
-# Test run artifacts (frontend/backend from todo-app scenario)
+# Agent workspaces (local .pi/ settings + generated code)
 frontend/
 backend/
+mastermaster/
+tester/
 
 # OS
 .DS_Store
 
+# Local pi config (symlinks, settings)
+.pi/
+
 # PiNet runtime data (lives in ~/.pinet/)
 # Nothing to track here — state is per-machine
-.pi/
-.pinet/
