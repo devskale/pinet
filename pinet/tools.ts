@@ -25,6 +25,13 @@ import { PersonalMessage, TeamMessage } from "./types";
 let myName: string | null = null;
 let myTeams: string[] = [];
 
+// Rate limiting: max team sends per minute
+const TEAM_SEND_LIMIT = 10;          // max sends per agent per team per minute
+const TEAM_SEND_WINDOW_MS = 60_000;  // 1 minute
+const TEAM_SEND_MIN_GAP_MS = 5_000;  // min 5s between sends
+const teamSendLog = new Map<string, number[]>(); // team → timestamps
+const teamLastSend = new Map<string, number>();    // team → last send timestamp
+
 export function setToolIdentity(name: string, teams: string[]) {
   myName = name;
   myTeams = teams;
@@ -147,6 +154,27 @@ export function registerTeamTools(pi: ExtensionAPI) {
       if (!myTeams.includes(team)) {
         return textReply(`You are not in team "${team}". Your teams: ${myTeams.join(", ") || "none"}`);
       }
+
+      // Rate limit check
+      const now = Date.now();
+
+      // Min gap between sends
+      const lastSend = teamLastSend.get(team) || 0;
+      if (now - lastSend < TEAM_SEND_MIN_GAP_MS) {
+        const waitSec = Math.ceil((TEAM_SEND_MIN_GAP_MS - (now - lastSend)) / 1000);
+        return textReply(`Too fast — wait ${waitSec}s between messages in #${team}.`);
+      }
+
+      // Per-minute cap
+      const times = (teamSendLog.get(team) || []).filter(t => now - t < TEAM_SEND_WINDOW_MS);
+      if (times.length >= TEAM_SEND_LIMIT) {
+        const oldest = times[0];
+        const waitSec = Math.ceil((TEAM_SEND_WINDOW_MS - (now - oldest)) / 1000);
+        return textReply(`Rate limited: ${TEAM_SEND_LIMIT} messages/min in #${team}. Wait ${waitSec}s.`);
+      }
+      times.push(now);
+      teamSendLog.set(team, times);
+      teamLastSend.set(team, now);
 
       appendJsonl(pinetPath("teams", team, "messages.jsonl"), {
         id: randomUUID(),

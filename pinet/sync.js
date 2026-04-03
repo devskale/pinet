@@ -221,6 +221,9 @@ function poll() {
 function handleRemoteChange(msg) {
   if (!config) return;
 
+  // Skip our own writes bouncing back through the relay
+  if (msg.from === config.machine) return;
+
   const filePath = path.join(PINET_DIR, msg.path);
   ensureDir(path.dirname(filePath));
 
