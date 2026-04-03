@@ -21,3 +21,6 @@ tester/
 
 # Relay secret token (contains credentials)
 relay-token
+
+# Validation scripts (run manually)
+test-hybrid-auth.js
