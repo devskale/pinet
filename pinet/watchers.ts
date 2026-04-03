@@ -1,5 +1,8 @@
 /**
- * PiNet — File watchers for personal mailbox and team messages
+ * PiNet — File watchers for personal mailbox and team messages.
+ *
+ * Watches ~/.pinet/mailboxes/ and ~/.pinet/teams/<name>/ for changes.
+ * Delivers new messages into the agent's conversation via pi.sendMessage().
  */
 
 import * as fs from "node:fs";
@@ -9,41 +12,98 @@ import { pinetPath, ensureDir, readJsonl } from "./store";
 import { PersonalMessage, TeamMessage } from "./types";
 
 // =============================================================================
-// State (module-scoped, cleared on logout)
+// Types
+// =============================================================================
+
+interface WatcherState {
+  watcher: fs.FSWatcher;
+  lineCount: number;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+// =============================================================================
+// State
 // =============================================================================
 
 let myName: string | null = null;
 
-// Personal
-let personalWatcher: fs.FSWatcher | null = null;
-let personalLineCount = 0;
-let personalDebounce: ReturnType<typeof setTimeout> | null = null;
+let personalState: WatcherState | null = null;
+let teamStates: Map<string, WatcherState> = new Map();
 
-// Teams
-let teamWatchers: Map<string, {
-  watcher: fs.FSWatcher;
-  lineCount: number;
-  debounce: ReturnType<typeof setTimeout> | null;
-}> = new Map();
+const DEBOUNCE_MS = 100;
 
 // =============================================================================
-// Init / Reset
+// Public API
 // =============================================================================
 
+/** Set the agent name (called on login) */
 export function setWatcherIdentity(name: string) {
   myName = name;
 }
 
+/** Stop all watchers and reset state (called on logout) */
 export function resetWatchers() {
   myName = null;
-  stopPersonalWatcher();
-  stopAllTeamWatchers();
-  personalLineCount = 0;
+  stopWatcher(personalState);
+  personalState = null;
+  for (const state of teamStates.values()) stopWatcher(state);
+  teamStates.clear();
 }
 
-export function getPersonalLineCount() { return personalLineCount; }
+/** Current personal mailbox read pointer */
+export function getPersonalLineCount(): number {
+  return personalState?.lineCount ?? 0;
+}
+
+/** Current team timeline read pointer */
 export function getTeamLineCount(team: string): number {
-  return teamWatchers.get(team)?.lineCount ?? 0;
+  return teamStates.get(team)?.lineCount ?? 0;
+}
+
+/** Start watching the personal mailbox */
+export function startPersonalWatcher(pi: ExtensionAPI) {
+  if (!myName) return;
+
+  const filePath = pinetPath("mailboxes", `${myName}.mailbox.jsonl`);
+  const dir = path.dirname(filePath);
+  ensureDir(dir);
+
+  const lineCount = countLines(filePath);
+  const watcher = fs.watch(dir, (_evt, filename) => {
+    if (filename !== `${myName}.mailbox.jsonl`) return;
+    debounce(personalState, DEBOUNCE_MS, () => {
+      if (!personalState) return;
+      const all = readJsonl<PersonalMessage>(filePath);
+      const fresh = all.slice(personalState.lineCount);
+      personalState.lineCount = all.length;
+      deliverPersonal(pi, fresh);
+    });
+  });
+
+  personalState = { watcher, lineCount, timer: null };
+}
+
+/** Start watching a team's timeline */
+export function startTeamWatcher(pi: ExtensionAPI, teamName: string) {
+  const filePath = pinetPath("teams", teamName, "messages.jsonl");
+  const dir = path.dirname(filePath);
+  ensureDir(dir);
+
+  const lineCount = countLines(filePath);
+  const watcher = fs.watch(dir, (_evt, filename) => {
+    if (filename !== "messages.jsonl") return;
+    const state = teamStates.get(teamName);
+    if (!state) return;
+    debounce(state, DEBOUNCE_MS, () => {
+      if (!state) return;
+      const all = readJsonl<TeamMessage>(filePath);
+      const fresh = all.slice(state.lineCount);
+      state.lineCount = all.length;
+      deliverTeam(pi, teamName, fresh);
+    });
+  });
+
+  teamStates.set(teamName, { watcher, lineCount, timer: null });
 }
 
 // =============================================================================
@@ -54,97 +114,52 @@ function deliverPersonal(pi: ExtensionAPI, messages: PersonalMessage[]) {
   if (messages.length === 0) return;
   const summary = messages.map((m) => `${m.from}: ${m.body}`).join("\n");
   pi.sendMessage(
-    { customType: "pinet", content: `[PiNet DM] ${messages.length} new message${messages.length > 1 ? "s" : ""}:\n${summary}`, display: true },
+    {
+      customType: "pinet",
+      content: `[PiNet DM] ${messages.length} new message${messages.length > 1 ? "s" : ""}:\n${summary}`,
+      display: true,
+    },
     { triggerTurn: true }
   );
 }
 
 function deliverTeam(pi: ExtensionAPI, teamName: string, messages: TeamMessage[]) {
   if (messages.length === 0 || !myName) return;
-  const filtered = messages.filter((m) => m.from !== myName);
-  if (filtered.length === 0) return;
-  const summary = filtered.map((m) => `${m.from}: ${m.body}`).join("\n");
+  // Filter out own messages to prevent echo loops
+  const incoming = messages.filter((m) => m.from !== myName);
+  if (incoming.length === 0) return;
+  const summary = incoming.map((m) => `${m.from}: ${m.body}`).join("\n");
   pi.sendMessage(
-    { customType: "pinet-team", content: `[PiNet #${teamName}] ${filtered.length} new message${filtered.length > 1 ? "s" : ""}:\n${summary}`, display: true },
+    {
+      customType: "pinet-team",
+      content: `[PiNet #${teamName}] ${incoming.length} new message${incoming.length > 1 ? "s" : ""}:\n${summary}`,
+      display: true,
+    },
     { triggerTurn: true }
   );
 }
 
 // =============================================================================
-// Personal Mailbox
+// Helpers
 // =============================================================================
 
-export function startPersonalWatcher(pi: ExtensionAPI) {
-  if (!myName) return;
-
-  const mailboxPath = pinetPath("mailboxes", `${myName}.mailbox.jsonl`);
-  ensureDir(path.dirname(mailboxPath));
-
-  if (fs.existsSync(mailboxPath)) {
-    const content = fs.readFileSync(mailboxPath, "utf-8").trim();
-    personalLineCount = content ? content.split("\n").length : 0;
-  } else {
-    personalLineCount = 0;
-  }
-
-  try {
-    personalWatcher = fs.watch(path.dirname(mailboxPath), (_eventType, filename) => {
-      if (!filename || filename !== `${myName}.mailbox.jsonl`) return;
-      if (personalDebounce) clearTimeout(personalDebounce);
-      personalDebounce = setTimeout(() => {
-        personalDebounce = null;
-        const all = readJsonl(mailboxPath) as PersonalMessage[];
-        const newMsgs = all.slice(personalLineCount);
-        personalLineCount = all.length;
-        if (newMsgs.length > 0) deliverPersonal(pi, newMsgs);
-      }, 100);
-    });
-  } catch {}
+function countLines(filePath: string): number {
+  if (!fs.existsSync(filePath)) return 0;
+  const content = fs.readFileSync(filePath, "utf-8").trim();
+  return content ? content.split("\n").length : 0;
 }
 
-function stopPersonalWatcher() {
-  if (personalDebounce) { clearTimeout(personalDebounce); personalDebounce = null; }
-  if (personalWatcher) { personalWatcher.close(); personalWatcher = null; }
+function debounce(state: WatcherState | null, ms: number, fn: () => void) {
+  if (!state) return;
+  if (state.timer) clearTimeout(state.timer);
+  state.timer = setTimeout(() => {
+    state.timer = null;
+    fn();
+  }, ms);
 }
 
-// =============================================================================
-// Team
-// =============================================================================
-
-export function startTeamWatcher(pi: ExtensionAPI, teamName: string) {
-  const msgPath = pinetPath("teams", teamName, "messages.jsonl");
-  ensureDir(path.dirname(msgPath));
-
-  let lineCount = 0;
-  if (fs.existsSync(msgPath)) {
-    const content = fs.readFileSync(msgPath, "utf-8").trim();
-    lineCount = content ? content.split("\n").length : 0;
-  }
-
-  try {
-    const watcher = fs.watch(path.dirname(msgPath), (_eventType, filename) => {
-      if (!filename || filename !== "messages.jsonl") return;
-      const state = teamWatchers.get(teamName);
-      if (!state) return;
-      if (state.debounce) clearTimeout(state.debounce);
-      state.debounce = setTimeout(() => {
-        if (!state) return;
-        state.debounce = null;
-        const all = readJsonl(msgPath) as TeamMessage[];
-        const newMsgs = all.slice(state.lineCount);
-        state.lineCount = all.length;
-        if (newMsgs.length > 0) deliverTeam(pi, teamName, newMsgs);
-      }, 100);
-    });
-
-    teamWatchers.set(teamName, { watcher, lineCount, debounce: null });
-  } catch {}
-}
-
-function stopAllTeamWatchers() {
-  for (const [, state] of teamWatchers) {
-    if (state.debounce) clearTimeout(state.debounce);
-    state.watcher.close();
-  }
-  teamWatchers.clear();
+function stopWatcher(state: WatcherState | null) {
+  if (!state) return;
+  if (state.timer) clearTimeout(state.timer);
+  state.watcher.close();
 }

@@ -1,14 +1,33 @@
 /**
- * PiNet — Shared types and constants
+ * PiNet — Shared types, constants, and path configuration.
+ *
+ * This module has zero runtime dependencies beyond Node path module.
+ * All interfaces here are pure data — no behavior.
  */
 
 import * as path from "node:path";
 
+// =============================================================================
+// Path configuration
+// =============================================================================
+
+/** Root directory for all PiNet state */
+export const PINET_DIR = path.join(process.env.HOME || "~", ".pinet");
+
+/** Valid name pattern for agents and teams */
+export const NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+// =============================================================================
+// Interfaces
+// =============================================================================
+
+/** An agent's identity — append-only log entry */
 export interface Identity {
   name: string;
   created: string;
 }
 
+/** A personal (DM) message between two agents */
 export interface PersonalMessage {
   id: string;
   from: string;
@@ -17,6 +36,7 @@ export interface PersonalMessage {
   timestamp: string;
 }
 
+/** A message in a team chat */
 export interface TeamMessage {
   id: string;
   from: string;
@@ -25,6 +45,7 @@ export interface TeamMessage {
   timestamp: string;
 }
 
+/** Current online/offline state of an agent */
 export interface PresenceEntry {
   name: string;
   status: "online" | "offline";
@@ -32,12 +53,14 @@ export interface PresenceEntry {
   lastSeen: string;
 }
 
+/** Team metadata — the roster */
 export interface TeamMeta {
   name: string;
   members: string[];
   created: string;
 }
 
+/** Folder → identity binding for auto-login */
 export interface Binding {
   name: string;
   teams: string[];
@@ -45,7 +68,9 @@ export interface Binding {
   bound: string;
 }
 
-export const PINET_DIR = path.join(process.env.HOME || "~", ".pinet");
+// =============================================================================
+// Name generation word lists
+// =============================================================================
 
 export const ADJECTIVES = [
   "Swift", "Bold", "Calm", "Dark", "Fast", "Gold", "Iron", "Jade",

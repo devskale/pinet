@@ -1,16 +1,25 @@
 /**
- * PiNet — Tool registration (personal + team)
+ * PiNet — Tool definitions for the LLM.
+ *
+ * Personal tools: pinet_send, pinet_mail, pinet_list
+ * Team tools:     pinet_team_send, pinet_team_read, pinet_team_list
+ *
+ * Tools are registered after login. Team tools only appear when
+ * the agent is logged in with @team.
  */
 
 import { Type } from "@sinclair/typebox";
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { pinetPath, readAllPresence, readJsonl, appendJsonl, readTeamMeta, readTeamMessages } from "./store";
+import {
+  pinetPath, readAllPresence, readJsonl, appendJsonl,
+  readTeamMeta, readTeamMessages,
+} from "./store";
 import { getPersonalLineCount, getTeamLineCount } from "./watchers";
 import { PersonalMessage, TeamMessage } from "./types";
 
 // =============================================================================
-// State (set on login)
+// State
 // =============================================================================
 
 let myName: string | null = null;
@@ -27,11 +36,22 @@ export function resetToolIdentity() {
 }
 
 // =============================================================================
+// Helpers
+// =============================================================================
+
+function notLoggedIn() {
+  return { content: [{ type: "text", text: "Not logged in. Use /pinet <name> first." }] };
+}
+
+function textReply(text: string) {
+  return { content: [{ type: "text", text }] };
+}
+
+// =============================================================================
 // Personal tools
 // =============================================================================
 
 export function registerPersonalTools(pi: ExtensionAPI) {
-  // pinet_send
   pi.registerTool({
     name: "pinet_send",
     label: "Send PiNet DM",
@@ -41,35 +61,26 @@ export function registerPersonalTools(pi: ExtensionAPI) {
       to: Type.String({ description: "Recipient agent name" }),
       message: Type.String({ description: "Message text" }),
     }),
-    async execute(_toolCallId, params) {
-      if (!myName) {
-        return { content: [{ type: "text", text: "Not logged in. Use /pinet <name> first." }] };
-      }
-
+    async execute(_id, params) {
+      if (!myName) return notLoggedIn();
       const { to, message } = params as { to: string; message: string };
-      const allPresence = readAllPresence();
-      const recipientOnline = allPresence.some((p) => p.name === to);
 
-      const msg: PersonalMessage = {
+      const online = readAllPresence().some((p) => p.name === to);
+
+      appendJsonl(pinetPath("mailboxes", `${to}.mailbox.jsonl`), {
         id: randomUUID(),
         from: myName,
         to,
         body: message,
         timestamp: new Date().toISOString(),
-      };
+      } satisfies PersonalMessage);
 
-      appendJsonl(pinetPath("mailboxes", `${to}.mailbox.jsonl`), msg);
-
-      return {
-        content: [{
-          type: "text",
-          text: `Message sent to ${to}. ${recipientOnline ? "They are online." : "They are offline — message queued."}`,
-        }],
-      };
+      return textReply(
+        `Message sent to ${to}. ${online ? "They are online." : "They are offline — message queued."}`
+      );
     },
   });
 
-  // pinet_mail
   pi.registerTool({
     name: "pinet_mail",
     label: "Check PiNet Mail",
@@ -79,45 +90,39 @@ export function registerPersonalTools(pi: ExtensionAPI) {
         Type.Boolean({ description: "Only show unread messages (default: true)" })
       ),
     }),
-    async execute(_toolCallId, params) {
-      if (!myName) {
-        return { content: [{ type: "text", text: "Not logged in." }] };
-      }
-
+    async execute(_id, params) {
+      if (!myName) return notLoggedIn();
       const { unreadOnly = true } = params as { unreadOnly?: boolean };
-      const allMessages = readJsonl(pinetPath("mailboxes", `${myName}.mailbox.jsonl`)) as PersonalMessage[];
-      const messages = unreadOnly ? allMessages.slice(getPersonalLineCount()) : allMessages;
+
+      const all = readJsonl<PersonalMessage>(pinetPath("mailboxes", `${myName}.mailbox.jsonl`));
+      const messages = unreadOnly ? all.slice(getPersonalLineCount()) : all;
 
       if (messages.length === 0) {
-        return { content: [{ type: "text", text: unreadOnly ? "No unread messages." : "No messages." }] };
+        return textReply(unreadOnly ? "No unread messages." : "No messages.");
       }
 
-      const formatted = messages
-        .map((m) => `[${new Date(m.timestamp).toLocaleTimeString()}] ${m.from}: ${m.body}`)
-        .join("\n");
-
-      return { content: [{ type: "text", text: formatted }] };
+      return textReply(
+        messages
+          .map((m) => `[${new Date(m.timestamp).toLocaleTimeString()}] ${m.from}: ${m.body}`)
+          .join("\n")
+      );
     },
   });
 
-  // pinet_list
   pi.registerTool({
     name: "pinet_list",
     label: "List PiNet Agents",
     description: "List all agents and their online status.",
     parameters: Type.Object({}),
     async execute() {
-      const allPresence = readAllPresence();
-      if (allPresence.length === 0) {
-        return { content: [{ type: "text", text: "No agents on the network." }] };
-      }
+      const all = readAllPresence();
+      if (all.length === 0) return textReply("No agents on the network.");
 
-      const lines = allPresence.map((p) => {
-        const indicator = p.status === "online" ? "🟢" : "⚪";
-        return `${indicator} ${p.name} (${p.status})`;
-      });
-
-      return { content: [{ type: "text", text: lines.join("\n") }] };
+      return textReply(
+        all
+          .map((p) => `${p.status === "online" ? "🟢" : "⚪"} ${p.name} (${p.status})`)
+          .join("\n")
+      );
     },
   });
 }
@@ -127,7 +132,6 @@ export function registerPersonalTools(pi: ExtensionAPI) {
 // =============================================================================
 
 export function registerTeamTools(pi: ExtensionAPI) {
-  // pinet_team_send
   pi.registerTool({
     name: "pinet_team_send",
     label: "Send Team Message",
@@ -136,32 +140,26 @@ export function registerTeamTools(pi: ExtensionAPI) {
       team: Type.String({ description: "Team name" }),
       message: Type.String({ description: "Message text" }),
     }),
-    async execute(_toolCallId, params) {
-      if (!myName) {
-        return { content: [{ type: "text", text: "Not logged in." }] };
-      }
-
+    async execute(_id, params) {
+      if (!myName) return notLoggedIn();
       const { team, message } = params as { team: string; message: string };
 
       if (!myTeams.includes(team)) {
-        return { content: [{ type: "text", text: `You are not in team "${team}". Your teams: ${myTeams.join(", ") || "none"}` }] };
+        return textReply(`You are not in team "${team}". Your teams: ${myTeams.join(", ") || "none"}`);
       }
 
-      const msg: TeamMessage = {
+      appendJsonl(pinetPath("teams", team, "messages.jsonl"), {
         id: randomUUID(),
         from: myName,
         team,
         body: message,
         timestamp: new Date().toISOString(),
-      };
+      } satisfies TeamMessage);
 
-      appendJsonl(pinetPath("teams", team, "messages.jsonl"), msg);
-
-      return { content: [{ type: "text", text: `Message sent to #${team}.` }] };
+      return textReply(`Message sent to #${team}.`);
     },
   });
 
-  // pinet_team_read
   pi.registerTool({
     name: "pinet_team_read",
     label: "Read Team Messages",
@@ -172,59 +170,53 @@ export function registerTeamTools(pi: ExtensionAPI) {
         Type.Boolean({ description: "Only show unread (default: true)" })
       ),
     }),
-    async execute(_toolCallId, params) {
-      if (!myName) {
-        return { content: [{ type: "text", text: "Not logged in." }] };
-      }
-
+    async execute(_id, params) {
+      if (!myName) return notLoggedIn();
       const { team, unreadOnly = true } = params as { team: string; unreadOnly?: boolean };
 
       if (!myTeams.includes(team)) {
-        return { content: [{ type: "text", text: `You are not in team "${team}".` }] };
+        return textReply(`You are not in team "${team}".`);
       }
 
-      const allMessages = readTeamMessages(team);
-      const readPointer = getTeamLineCount(team);
-      const messages = unreadOnly ? allMessages.slice(readPointer) : allMessages;
+      const all = readTeamMessages(team);
+      const messages = unreadOnly ? all.slice(getTeamLineCount(team)) : all;
 
       if (messages.length === 0) {
-        return { content: [{ type: "text", text: unreadOnly ? `No unread messages in #${team}.` : `No messages in #${team}.` }] };
+        return textReply(unreadOnly ? `No unread messages in #${team}.` : `No messages in #${team}.`);
       }
 
-      const formatted = messages
-        .map((m) => `[${new Date(m.timestamp).toLocaleTimeString()}] ${m.from}: ${m.body}`)
-        .join("\n");
-
-      return { content: [{ type: "text", text: formatted }] };
+      return textReply(
+        messages
+          .map((m) => `[${new Date(m.timestamp).toLocaleTimeString()}] ${m.from}: ${m.body}`)
+          .join("\n")
+      );
     },
   });
 
-  // pinet_team_list
   pi.registerTool({
     name: "pinet_team_list",
     label: "List Teams",
     description: "List all teams you are a member of and their members.",
     parameters: Type.Object({}),
     async execute() {
-      if (!myName) {
-        return { content: [{ type: "text", text: "Not logged in." }] };
-      }
-
+      if (!myName) return notLoggedIn();
       if (myTeams.length === 0) {
-        return { content: [{ type: "text", text: "You are not in any teams. Log in with /pinet name@team to join one." }] };
+        return textReply("You are not in any teams. Log in with /pinet name@team to join one.");
       }
 
-      const lines = myTeams.map((teamName) => {
-        const meta = readTeamMeta(teamName);
-        const members = meta?.members.join(", ") ?? "unknown";
-        const unread = readTeamMessages(teamName)
-          .slice(getTeamLineCount(teamName))
-          .filter((m: TeamMessage) => m.from !== myName).length;
-        const badge = unread > 0 ? ` (${unread} unread)` : "";
-        return `#${teamName}: ${members}${badge}`;
-      });
-
-      return { content: [{ type: "text", text: lines.join("\n") }] };
+      return textReply(
+        myTeams
+          .map((name) => {
+            const meta = readTeamMeta(name);
+            const members = meta?.members.join(", ") ?? "unknown";
+            const unread = readTeamMessages(name)
+              .slice(getTeamLineCount(name))
+              .filter((m: TeamMessage) => m.from !== myName).length;
+            const badge = unread > 0 ? ` (${unread} unread)` : "";
+            return `#${name}: ${members}${badge}`;
+          })
+          .join("\n")
+      );
     },
   });
 }

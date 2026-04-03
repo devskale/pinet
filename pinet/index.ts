@@ -1,7 +1,7 @@
 /**
  * PiNet — Permanent Agent Network
  *
- * Agent-to-agent DMs + team chats via files.
+ * Agent-to-agent DMs + team chats via files. Zero server.
  *
  * Usage:
  *   /pinet                       — auto-login (binding or generated name)
@@ -13,11 +13,22 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import * as fs from "node:fs";
-import { pinetPath, readAllPresence, readJsonl, writePresence, writeIdentity, writeBinding, readBinding, generateName, joinTeam, readTeamMessages } from "./store";
-import { resetWatchers, getPersonalLineCount, getTeamLineCount, startPersonalWatcher, startTeamWatcher, setWatcherIdentity } from "./watchers";
-import { registerPersonalTools, registerTeamTools, setToolIdentity, resetToolIdentity } from "./tools";
-import { TeamMessage } from "./types";
+import {
+  pinetPath, exists, readFile, isProcessAlive,
+  readAllPresence, readJsonl, readTeamMessages,
+  writePresence, writeIdentity, writeBinding, readBinding,
+  generateName, joinTeam,
+} from "./store";
+import { NAME_PATTERN, TeamMessage } from "./types";
+import {
+  startPersonalWatcher, startTeamWatcher,
+  resetWatchers, getPersonalLineCount, getTeamLineCount,
+  setWatcherIdentity,
+} from "./watchers";
+import {
+  registerPersonalTools, registerTeamTools,
+  setToolIdentity, resetToolIdentity,
+} from "./tools";
 
 // =============================================================================
 // State
@@ -31,53 +42,58 @@ let myTeams: string[] = [];
 // =============================================================================
 
 function parseLoginArg(arg: string): { name: string; teams: string[] } {
-  const atIdx = arg.indexOf("@");
-  if (atIdx === -1) return { name: arg, teams: [] };
-  const name = arg.slice(0, atIdx);
-  const teams = arg.slice(atIdx + 1).split(",").map((t) => t.trim()).filter(Boolean);
-  return { name, teams };
+  const at = arg.indexOf("@");
+  if (at === -1) return { name: arg, teams: [] };
+  return {
+    name: arg.slice(0, at),
+    teams: arg
+      .slice(at + 1)
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean),
+  };
 }
 
 // =============================================================================
-// Status helpers
+// Unread count helper
 // =============================================================================
 
-function getTeamUnread(teamName: string): number {
-  return readTeamMessages(teamName)
-    .slice(getTeamLineCount(teamName))
+function teamUnread(team: string): number {
+  return readTeamMessages(team)
+    .slice(getTeamLineCount(team))
     .filter((m: TeamMessage) => m.from !== myName).length;
 }
 
 // =============================================================================
-// Login / Logout
+// Login
 // =============================================================================
 
-function doLogin(pi: ExtensionAPI, name: string, teams: string[], ctx: { hasUI: boolean; ui: any }) {
-  if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
-    if (ctx.hasUI) ctx.ui.notify("Invalid name. Use letters, numbers, underscore, hyphen.", "error");
+function doLogin(pi: ExtensionAPI, name: string, teams: string[], ctx: any) {
+  // Validate
+  if (!NAME_PATTERN.test(name)) {
+    ctx.ui?.notify?.("Invalid name. Use letters, numbers, _ or -.", "error");
     return;
   }
-
   for (const t of teams) {
-    if (!/^[a-zA-Z0-9_-]+$/.test(t)) {
-      if (ctx.hasUI) ctx.ui.notify(`Invalid team name "${t}".`, "error");
+    if (!NAME_PATTERN.test(t)) {
+      ctx.ui?.notify?.(`Invalid team name "${t}".`, "error");
       return;
     }
   }
 
-  // Check if name already online (different PID)
-  const existingPath = pinetPath("presence", `${name}.json`);
-  if (exists(existingPath)) {
+  // Check name conflict
+  const presenceFile = pinetPath("presence", `${name}.json`);
+  if (exists(presenceFile)) {
     try {
-      const existing = JSON.parse(read(existingPath));
-      if (existing.status === "online" && isAlive(existing.pid) && existing.pid !== process.pid) {
-        if (ctx.hasUI) ctx.ui.notify(`"${name}" is already online (PID ${existing.pid})`, "error");
+      const pe = JSON.parse(readFile(presenceFile));
+      if (pe.status === "online" && isProcessAlive(pe.pid) && pe.pid !== process.pid) {
+        ctx.ui?.notify?.(`"${name}" is already online (PID ${pe.pid})`, "error");
         return;
       }
-    } catch {}
+    } catch { /* stale file, proceed */ }
   }
 
-  // Set state
+  // Set identity
   myName = name;
   myTeams = teams;
 
@@ -86,120 +102,129 @@ function doLogin(pi: ExtensionAPI, name: string, teams: string[], ctx: { hasUI: 
   writeBinding(name, teams);
   writePresence(name, "online");
 
-  // Init modules
+  // Init subsystems
   setToolIdentity(name, teams);
   setWatcherIdentity(name);
   startPersonalWatcher(pi);
   registerPersonalTools(pi);
 
-  const teamNotes: string[] = [];
   for (const team of teams) {
     joinTeam(team, name);
     startTeamWatcher(pi, team);
-    teamNotes.push(`#${team}`);
   }
-  if (teams.length > 0) {
-    registerTeamTools(pi);
-  }
+  if (teams.length > 0) registerTeamTools(pi);
 
-  // Notify
-  const mailbox = readJsonl(pinetPath("mailboxes", `${name}.mailbox.jsonl`));
-  const backlog = mailbox.length - getPersonalLineCount();
-  const parts = [`Logged in as ${name} ✨`];
-  if (teamNotes.length > 0) parts.push(`Teams: ${teamNotes.join(", ")}`);
-  if (backlog > 0) parts.push(`${backlog} unread DMs`);
+  // Notify user
+  const backlog =
+    readJsonl(pinetPath("mailboxes", `${name}.mailbox.jsonl`)).length -
+    getPersonalLineCount();
 
-  if (ctx.hasUI) ctx.ui.notify(parts.join("\n  "), "success");
+  const lines = [`Logged in as ${name} ✨`];
+  if (teams.length > 0) lines.push(`Teams: ${teams.map((t) => `#${t}`).join(", ")}`);
+  if (backlog > 0) lines.push(`${backlog} unread DMs`);
+
+  ctx.ui?.notify?.(lines.join("\n  "), "success");
 }
 
-function doLogout(ctx: { hasUI: boolean; ui: any }) {
+// =============================================================================
+// Logout
+// =============================================================================
+
+function doLogout(ctx: any) {
   if (!myName) {
-    if (ctx.hasUI) ctx.ui.notify("Not logged in.", "warning");
+    ctx.ui?.notify?.("Not logged in.", "warning");
     return;
   }
 
   writePresence(myName, "offline");
   resetWatchers();
   resetToolIdentity();
+
+  const name = myName;
   myName = null;
   myTeams = [];
 
-  if (ctx.hasUI) ctx.ui.notify("Went offline.", "info");
-}
-
-function exists(p: string): boolean {
-  return fs.existsSync(p);
-}
-
-function read(p: string): string {
-  return fs.readFileSync(p, "utf-8");
-}
-
-function isAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch { return false; }
+  ctx.ui?.notify?.(`${name} went offline.`, "info");
 }
 
 // =============================================================================
-// Extension Entry Point
+// Status
+// =============================================================================
+
+function showStatus(ctx: any) {
+  if (!myName) {
+    ctx.ui?.notify?.("Not logged in.", "warning");
+    return;
+  }
+
+  const peers = readAllPresence().filter(
+    (p) => p.status === "online" && p.name !== myName
+  );
+  const dmUnread =
+    readJsonl(pinetPath("mailboxes", `${myName}.mailbox.jsonl`)).length -
+    getPersonalLineCount();
+
+  const lines = [`Logged in as ${myName}`];
+  if (myTeams.length > 0) {
+    lines.push(
+      `Teams: ${myTeams
+        .map((t) => {
+          const u = teamUnread(t);
+          return `#${t}${u > 0 ? ` (${u} unread)` : ""}`;
+        })
+        .join(", ")}`
+    );
+  }
+  lines.push(`${peers.length} peer${peers.length !== 1 ? "s" : ""} online`);
+  if (dmUnread > 0) lines.push(`${dmUnread} unread DM${dmUnread !== 1 ? "s" : ""}`);
+
+  ctx.ui?.notify?.(lines.join("\n  "), "info");
+}
+
+// =============================================================================
+// Extension entry point
 // =============================================================================
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("pinet", {
-    description: "Log into PiNet: /pinet [name][@team1,team2] | /pinet off | /pinet (status)",
+    description: "PiNet: /pinet [name][@team] | /pinet off | /pinet (status)",
 
     handler: async (args, ctx) => {
       const arg = args.trim();
 
-      // Logout
-      if (arg === "off") {
-        doLogout(ctx);
-        return;
-      }
+      // ── Logout ──────────────────────────────────
+      if (arg === "off") return doLogout(ctx);
 
-      // Status (already logged in)
-      if (!arg && myName) {
-        const presence = readAllPresence();
-        const peers = presence.filter((p) => p.status === "online" && p.name !== myName);
-        const mailbox = readJsonl(pinetPath("mailboxes", `${myName}.mailbox.jsonl`));
-        const unread = mailbox.length - getPersonalLineCount();
+      // ── Status ──────────────────────────────────
+      if (!arg && myName) return showStatus(ctx);
 
-        const parts = [`Logged in as ${myName}`];
-        if (myTeams.length > 0) {
-          const teamStatus = myTeams.map((t) => {
-            const u = getTeamUnread(t);
-            return `#${t}${u > 0 ? ` (${u} unread)` : ""}`;
-          });
-          parts.push(`Teams: ${teamStatus.join(", ")}`);
-        }
-        parts.push(`${peers.length} peer${peers.length !== 1 ? "s" : ""} online`);
-        if (unread > 0) parts.push(`${unread} unread DM${unread !== 1 ? "s" : ""}`);
-
-        ctx.ui.notify(parts.join("\n  "), "info");
-        return;
-      }
-
-      // No arg, not logged in → auto-login
+      // ── Auto-login ──────────────────────────────
       if (!arg && !myName) {
         const binding = readBinding();
-        if (binding) {
-          doLogin(pi, binding.name, binding.teams, ctx);
-        } else {
-          doLogin(pi, generateName(), [], ctx);
-        }
-        return;
+        return doLogin(
+          pi,
+          binding ? binding.name : generateName(),
+          binding ? binding.teams : [],
+          ctx
+        );
       }
 
-      // Already logged in
+      // ── Already logged in ───────────────────────
       if (myName) {
-        ctx.ui.notify(`Already logged in as ${myName}. Use /pinet off first.`, "warning");
+        ctx.ui?.notify?.(
+          `Already logged in as ${myName}. Use /pinet off first.`,
+          "warning"
+        );
         return;
       }
 
+      // ── Login with arg ──────────────────────────
       const { name, teams } = parseLoginArg(arg);
       doLogin(pi, name, teams, ctx);
     },
   });
 
+  // Cleanup on exit
   pi.on("session_shutdown", () => {
     if (myName) {
       writePresence(myName, "offline");
