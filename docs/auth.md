@@ -1,180 +1,171 @@
-# PiNet Auth — Cross-Machine Identity
+# PiNet Auth — Deep Dive
 
-## The problem
-
-On one machine, identity is simple: `/pinet Master` checks if another live process (same PID namespace) already claimed "Master". If yes, rejected. PID check works.
-
-Across machines, PID namespaces are independent. Machine A's PID 1234 ≠ machine B's PID 1234. The current presence check breaks:
+## The real scenario
 
 ```
-Machine A: Master logs in → presence/Master.json = { pid: 1234 }
-Sync daemon copies to Machine B
-Machine B: someone tries /pinet Master
-  → reads presence/Master.json, sees pid: 1234
-  → process.kill(1234, 0) → might hit an unrelated process on machine B!
-  → or returns false → lets them impersonate Master
+Machine A (MacBook)     Relay (cloud VM)     Machine B (desktop)
+─────────────────     ──────────────────     ─────────────────
+pi session 1                                    pi session 3
+  FrontendDev                                     BackendDev
+pi session 2                                    pi session 4
+  Master                                          Tester
 ```
 
-**This is a bug.** The presence check doesn't work across machines.
+Multiple pi sessions per machine. Each running PiNet. All connected through one relay. Need to discover each other, collaborate.
 
-## Solution: machine-scoped presence
+## Why shared-secret is insufficient
 
-Presence entry gains a `machine` field:
+| Problem | Example |
+|---------|---------|
+| Token leak = full access | Anyone with the token connects and sees ALL file changes for ALL agents |
+| No revocation | Compromised machine? Change token everywhere. |
+| No machine identity | Relay can't tell machines apart. Any connection with the token is trusted. |
+| No audit trail | Can't tell who sent what. A rogue machine could inject fake messages. |
+
+But for PoC (2-4 machines, trusted humans), shared-secret is actually fine. Let's be honest about what level of security is needed when.
+
+## Auth levels — what threat model demands
+
+| Scale | Threat | Auth needed |
+|-------|--------|-------------|
+| 1-2 machines, yourself | None. Shared secret is overkill. |
+| 3-10 machines, small team | Shared secret is fine. Trust your teammates. |
+| 10+ machines, org | Per-machine keys. Ability to revoke. |
+| Open/public relay | Full PKI. Signed messages. Per-agent tokens. |
+
+**For PoC: shared-secret is correct. Ship it.**
+
+But let's design the upgrade path so the architecture doesn't need to change later.
+
+## Proposed: tiered auth
+
+### Tier 1: Shared secret (PoC — ship this)
 
 ```json
+// ~/.pinet/relay.json
 {
-  "name": "Master",
-  "status": "online",
-  "pid": 1234,
-  "machine": "johann-mac",
-  "lastSeen": "..."
+  "url": "ws://relay.example.com:3000",
+  "token": "our-team-secret"
 }
 ```
 
-Login checks:
-```
-Is "Master" already online?
-  → Read presence/Master.json
-  → If machine === "johann-mac" AND pid is alive (local check) → reject
-  → If machine !== local machine → the agent is on a different machine
-      → Trust it. That's a different Master. But wait — we want unique names across the network.
-```
+One token. All machines use it. Relay validates on connect. Done.
 
-**A name must be unique across the entire network, not just one machine.**
+**Upgrade path:** the `relay.json` format doesn't change. The relay's validation just gets stricter.
 
-New login check:
+### Tier 2: Per-machine keys (multi-team)
+
+Each machine generates a keypair. The relay admin registers the public keys.
 
 ```
-1. Read presence/Master.json (synced from all machines)
-2. If it exists:
-   a. If machine === my machine AND pid alive → "already logged in here"
-   b. If machine !== my machine AND status === "online" → "name taken on <machine>"
-   c. If pid dead or status "offline" → name is free, claim it
-3. Write my presence with my machine ID
-```
-
-## Auth layers
-
-Three separate concerns:
-
-### Layer 1: Machine auth (relay level)
-
-Who can connect to the relay at all?
-
-**PoC**: shared token in `relay.json`. One token per network. All machines use the same token.
-
-```
-relay.json: { "token": "my-secret" }
-Relay: rejects connections with wrong token
-```
-
-This is like a WiFi password. Everyone in the network knows it. Anyone with it can connect and see all traffic.
-
-**Future**: per-machine tokens issued by relay admin. Revocable. But for PoC, shared secret is fine.
-
-### Layer 2: Agent identity (PiNet level)
-
-Who can claim the name "Master"?
-
-**PoC**: first-come, first-served. The name goes to whoever logs in first. Presence file (now machine-scoped) enforces uniqueness.
-
-No passwords for agents. The identity is claimed, not proven. If you're on the network (passed Layer 1), you can claim any unclaimed name.
-
-**Impersonation risk**: if Alice disconnects and Bob quickly does `/pinet Alice`, he gets the name. Messages meant for Alice go to Bob.
-
-**Mitigation**: identity claim requires the same machine. Once "Master" is bound to machine "johann-mac", only johann-mac can reclaim it. Store in identity:
-
-```json
-// presence/Master.json
+~/.pinet/relay.json
 {
-  "name": "Master",
+  "url": "ws://relay.example.com:3000",
   "machine": "johann-mac",
-  "bound": true
+  "privateKey": "-----BEGIN PRIVATE KEY-----\n..."
+}
+
+~/.pinet/relay.json
+{
+  "url": "ws://relay.example.com:3000",
+  "machine": "cloud-vm",
+  "privateKey": "-----BEGIN PRIVATE KEY-----\n..."
 }
 ```
 
-Login rule: if `bound === true` and requesting machine !== bound machine → reject. Name is locked to that machine.
-
-Unbinding: `/pinet off` sets `bound: false`, or a timeout (24h) auto-unbinds.
-
-### Layer 3: Team membership (PiNet level)
-
-Who can join team "build"?
-
-**PoC**: anyone on the network. `name@build` auto-joins. Trust is social.
-
-**Future**: team creator can set a policy:
-
-| Policy | Meaning |
-|--------|---------|
-| `open` | Anyone can join (default) |
-| `invite` | Only invited agents can join |
-| `request` | Anyone can request, creator approves |
-
-For PoC: all teams are `open`. If you're on the network, you can join any team.
-
-## The practical threat model
-
-| Threat | PoC | Future |
-|--------|-----|--------|
-| Stranger connects to relay | Shared token prevents | Per-machine tokens |
-| Agent impersonates another agent | Machine binding prevents | Per-agent signing keys |
-| Agent joins team without permission | Allowed (open teams) | Invite/request policies |
-| Machine goes rogue, floods relay | Rate limit per connection | Token revocation |
-| MITM on relay connection | Not prevented | TLS (wss://) |
-| Relay operator reads messages | They can — don't run relay you don't trust | End-to-end encryption |
-
-For PoC: shared token + machine-bound identities + open teams. This is enough.
-
-## Updated presence format
-
-```json
-// ~/.pinet/presence/Master.json
-{
-  "name": "Master",
-  "status": "online",
-  "pid": 1234,
-  "machine": "johann-mac",
-  "lastSeen": "2026-04-03T20:00:00.000Z"
-}
+Auth flow:
+```
+Machine connects to relay
+  → Sends: { type: "auth", machine: "johann-mac", signature: <sign(timestamp+machine+token) with private key> }
+  → Relay has stored public keys (registered by admin)
+  → Relay verifies signature
+  → Relay sends { type: "welcome", machines: [...] }
 ```
 
-New field: `machine`. Set from `relay.json`'s `machine` field, or hostname if no relay.
+Benefits:
+- Each machine has unique identity
+- Relay can reject individual machines without affecting others
+- Signature proves machine identity (can't forge without private key)
+- Admin can revoke by removing public key from relay config
 
-## Updated login flow
+**No relay restart needed** to revoke — just remove the public key from relay's config and the next reconnect attempt fails.
+
+### Tier 3: Relay-administered tokens (future)
+
+For public relays or large orgs:
 
 ```
-/pinet Master@build
+# Admin generates an invite token
+pinet-admin invite --machine johann-mac --team build
+  → Outputs: pinet_mac_johann_abc123
 
-1. Read presence/Master.json
-2. If exists:
-   a. status "online", same machine, pid alive → reject "already logged in"
-   b. status "online", different machine → reject "Master is online on <machine>"
-   c. status "offline" or pid dead → name is free
-3. Write presence/Master.json with { machine: myMachineId }
-4. Continue as before (identity, mailbox watcher, team join)
+# User configures
+echo '{"url":"...","token":"pinet_mac_johann_abc123"}' > ~/.pinet/relay.json
 ```
 
-`myMachineId` comes from:
-- `relay.json`'s `machine` field if present
-- `os.hostname()` if no relay (local-only mode)
+Each token is scoped to a machine + team. Relay validates both. Tokens can expire. Admin can revoke individually.
 
-## What changes in PiNet code
+## How this affects the relay
 
-1. `store.ts`: `writePresence()` adds `machine` field
-2. `store.ts`: `readAllPresence()` no longer filters by PID alone — also checks machine
-3. `index.ts`: `doLogin()` checks machine-scoped presence before claiming name
-4. No changes to relay (relay doesn't know about any of this)
+| Tier | Relay complexity | relay.json format |
+|------|-------------------|-------------------|
+| 1 (PoC) | `if (msg.token === TOKEN) OK` — 2 lines | `{ url, token }` |
+| 2 | Signature verification — ~20 lines | `{ url, machine, privateKey }` |
+| 3 | Token lookup + expiry — ~50 lines | `{ url, token }` (admin-managed) |
 
-## What changes in sync daemon
+The relay code structure doesn't change — same `auth` message, same flow. Just the validation function gets more sophisticated.
 
-1. Sync daemon reads `relay.json` to get `machine` ID
-2. Passes machine ID to PiNet somehow (env var? config file?)
-3. Or: PiNet reads machine ID from `~/.pinet/machine.json` (written by sync daemon or manually)
+## How this affects PiNet
 
-Simplest: PiNet reads machine ID from `~/.pinet/machine.json`. Sync daemon creates it on start. If no file, machine = hostname.
+It doesn't. PiNet reads `relay.json` and passes it to the sync daemon. The sync daemon handles auth with the relay. PiNet extension code is unchanged in all tiers.
 
-```json
-// ~/.pinet/machine.json
-{ "machine": "johann-mac" }
+## How this affects the sync daemon
+
+| Tier | Sync daemon change |
+|------|-------------------|
+| 1 | Send `{ type: "auth", token: relayJson.token }` |
+| 2 | Sign timestamp + machine with private key, send signature |
+| 3 | Send token from relay.json |
+
+The sync daemon reads `relay.json` and does the right thing based on which fields are present.
+
+## Recommendation for implementation
+
+**Ship Tier 1.** The relay validates `token === process.env.PINET_RELAY_TOKEN || config.token`. Sync daemon sends the token. Done in 5 minutes.
+
+The `relay.json` schema already supports tier 2 (just add `machine` + `privateKey` fields). The relay auth function is one `if` statement that grows to a `verify()` function. No architectural changes needed for upgrade.
+
+## Onboarding flow (all tiers)
+
 ```
+Human decides to set up a PiNet network
+
+1. Start relay:
+   npx pinet-relay --port 3000 --token my-secret
+
+2. On each machine, create relay.json:
+   echo '{"url":"ws://relay-host:3000","token":"my-secret"}' > ~/.pinet/relay.json
+
+3. Start sync daemon (or let extension auto-start it):
+   npx pinet-sync
+
+4. Agents log in as before:
+   /pinet Master@build
+   /pinet BackendDev@build
+   ...
+
+That's it. No key generation, no certificate authority, no admin panel.
+The token IS the network. Share it however you share secrets with your team.
+```
+
+## Key insight
+
+**Auth is not the same as identity.**
+
+- **Auth** = "am I allowed to connect to this relay?" (machine → relay)
+- **Identity** = "am I allowed to be Master?" (agent → network, via presence files)
+- **Team membership** = "am I allowed to be in @build?" (agent → team, via meta.json)
+
+These are three separate problems. The relay only cares about auth. PiNet handles identity and team membership via files. The sync daemon bridges them.
+
+Don't over-engineer auth. The real security in PiNet is social: you trust the people running the agents. If you don't trust them, don't give them the token.
