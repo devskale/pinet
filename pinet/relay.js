@@ -15,6 +15,7 @@
  */
 
 const { parseArgs } = require("node:util");
+const fs = require("node:fs");
 
 // =============================================================================
 // CLI
@@ -24,20 +25,25 @@ const { values } = parseArgs({
   options: {
     port: { type: "string", default: "3000" },
     token: { type: "string" },
+    "token-file": { type: "string" },
     "heartbeat-ms": { type: "string", default: "30000" },
     "auth-timeout-ms": { type: "string", default: "5000" },
   },
   strict: true,
 });
 
-if (!values.token) {
+const TOKEN = values["token-file"]
+  ? fs.readFileSync(values["token-file"], "utf-8").trim()
+  : values.token;
+
+if (!TOKEN) {
   console.error("Usage: node relay.js --port 3000 --token <secret>");
-  console.error("  --token is required");
+  console.error("       node relay.js --port 3000 --token-file <path>");
+  console.error("  --token or --token-file is required");
   process.exit(1);
 }
 
 const PORT = parseInt(values.port, 10);
-const TOKEN = values.token;
 const HEARTBEAT_MS = parseInt(values["heartbeat-ms"], 10);
 const AUTH_TIMEOUT_MS = parseInt(values["auth-timeout-ms"], 10);
 
@@ -158,7 +164,11 @@ wss.on("connection", (ws, req) => {
 
 function send(ws, msg) {
   if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(msg));
+    try {
+      ws.send(JSON.stringify(msg));
+    } catch (err) {
+      // Socket may be in a transitional state — ignore
+    }
   }
 }
 
@@ -167,8 +177,12 @@ function broadcast(msg, exclude) {
   let count = 0;
   for (const [id, { ws }] of machines) {
     if (ws !== exclude && ws.readyState === WebSocket.OPEN) {
-      ws.send(raw);
-      count++;
+      try {
+        ws.send(raw);
+        count++;
+      } catch (err) {
+        // Socket may be in a transitional state — ignore
+      }
     }
   }
   return count;

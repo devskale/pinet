@@ -18,3 +18,6 @@ tester/
 
 # PiNet runtime data (lives in ~/.pinet/)
 # Nothing to track here — state is per-machine
+
+# Relay secret token (contains credentials)
+relay-token

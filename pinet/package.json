@@ -3,9 +3,16 @@
   "version": "0.1.0",
   "description": "Agent-to-agent DMs and team chats for pi — file-based, no server needed",
   "main": "index.ts",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "pi": {
-    "extensions": ["./"]
+    "extensions": [
+      "./"
+    ]
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.20.0"
+  }
 }
