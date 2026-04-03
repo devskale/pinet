@@ -44,17 +44,25 @@ let syncProcess: child_process.ChildProcess | null = null;
 // Parse "Name@team1,team2"
 // =============================================================================
 
-function parseLoginArg(arg: string): { name: string; teams: string[] } {
+function parseLoginArg(arg: string): { name: string; teams: string[]; teamRoles: Record<string, string> } {
   const at = arg.indexOf("@");
-  if (at === -1) return { name: arg, teams: [] };
-  return {
-    name: arg.slice(0, at),
-    teams: arg
-      .slice(at + 1)
-      .split(",")
-      .map((t) => t.trim())
-      .filter(Boolean),
-  };
+  if (at === -1) return { name: arg, teams: [], teamRoles: {} };
+  const teamRoles: Record<string, string> = {};
+  const teams = arg
+    .slice(at + 1)
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => {
+      const colon = t.indexOf(":");
+      if (colon !== -1) {
+        const teamName = t.slice(0, colon);
+        teamRoles[teamName] = t.slice(colon + 1);
+        return teamName;
+      }
+      return t;
+    });
+  return { name: arg.slice(0, at), teams, teamRoles };
 }
 
 // =============================================================================
@@ -71,7 +79,7 @@ function teamUnread(team: string): number {
 // Login
 // =============================================================================
 
-function doLogin(pi: ExtensionAPI, name: string, teams: string[], ctx: any) {
+function doLogin(pi: ExtensionAPI, name: string, teams: string[], teamRoles: Record<string, string>, ctx: any) {
   // Validate
   if (!NAME_PATTERN.test(name)) {
     ctx.ui?.notify?.("Invalid name. Use letters, numbers, _ or -.", "error");
@@ -112,7 +120,7 @@ function doLogin(pi: ExtensionAPI, name: string, teams: string[], ctx: any) {
   registerPersonalTools(pi);
 
   for (const team of teams) {
-    joinTeam(team, name);
+    joinTeam(team, name, teamRoles[team]);
     startTeamWatcher(pi, team);
   }
   if (teams.length > 0) registerTeamTools(pi);
@@ -255,6 +263,7 @@ export default function (pi: ExtensionAPI) {
           pi,
           binding ? binding.name : generateName(),
           binding ? binding.teams : [],
+          {},
           ctx
         );
       }
@@ -269,8 +278,8 @@ export default function (pi: ExtensionAPI) {
       }
 
       // ── Login with arg ──────────────────────────
-      const { name, teams } = parseLoginArg(arg);
-      doLogin(pi, name, teams, ctx);
+      const { name, teams, teamRoles } = parseLoginArg(arg);
+      doLogin(pi, name, teams, teamRoles, ctx);
     },
   });
 

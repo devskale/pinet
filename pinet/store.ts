@@ -163,12 +163,14 @@ export function writeTeamMeta(meta: TeamMeta) {
 }
 
 /** Join a team — creates it if it doesn't exist, adds agent to members */
-export function joinTeam(teamName: string, agentName: string): boolean {
+export function joinTeam(teamName: string, agentName: string, role?: string): boolean {
   let meta = readTeamMeta(teamName);
   if (!meta) {
-    meta = { name: teamName, members: [agentName], created: new Date().toISOString() };
+    meta = { name: teamName, members: [agentName], roles: {}, created: new Date().toISOString() };
+    if (role) meta.roles[agentName] = role;
   } else if (!meta.members.includes(agentName)) {
     meta.members.push(agentName);
+    if (role) meta.roles[agentName] = role;
   } else {
     return true; // already a member
   }

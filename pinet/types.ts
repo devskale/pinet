@@ -57,6 +57,7 @@ export interface PresenceEntry {
 export interface TeamMeta {
   name: string;
   members: string[];
+  roles: Record<string, string>; // member name → role/description
   created: string;
 }
 

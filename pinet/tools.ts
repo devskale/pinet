@@ -236,7 +236,10 @@ export function registerTeamTools(pi: ExtensionAPI) {
         myTeams
           .map((name) => {
             const meta = readTeamMeta(name);
-            const members = meta?.members.join(", ") ?? "unknown";
+            const members = meta?.members.map(m => {
+              const role = meta?.roles?.[m];
+              return role ? `${m} (${role})` : m;
+            }).join(", ") ?? "unknown";
             const unread = readTeamMessages(name)
               .slice(getTeamLineCount(name))
               .filter((m: TeamMessage) => m.from !== myName).length;
