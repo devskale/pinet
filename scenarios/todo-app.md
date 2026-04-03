@@ -1,10 +1,24 @@
 # Todo App — Shared Goal
 
-Build a full-stack todo application split across two projects.
+Build a full-stack todo application. Three agents collaborate: one oversees, two build.
 
-## Backend (in ../backend/)
+## Roles
 
-Build a REST API using Node.js + Express (no DB, in-memory store).
+### Master (overseer)
+
+Does not write code. Reads this spec, assigns tasks, monitors progress, reviews work.
+
+Responsibilities:
+- Read the full spec and understand the architecture
+- Tell BackendDev to start building the API
+- Tell FrontendDev to stand by until the API is ready
+- Review BackendDev's and FrontendDev's code by reading their files
+- Resolve blockers and answer questions
+- Declare the project done when everything works
+
+### BackendDev
+
+Builds the REST API in `../backend/` using Node.js + Express (no DB, in-memory store).
 
 Endpoints:
 - `GET /todos` — list all todos
@@ -17,10 +31,12 @@ Rules:
 - JSON responses
 - CORS enabled (for frontend dev server)
 - Start with 2 seed todos
+- Report to Master when the API is running
+- Answer FrontendDev's questions about the API directly
 
-## Frontend (in ../frontend/)
+### FrontendDev
 
-Build a single-page app using vanilla HTML + CSS + JS (no framework).
+Builds a single-page app in `../frontend/` using vanilla HTML + CSS + JS (no framework).
 
 Requirements:
 - Show list of todos
@@ -28,9 +44,15 @@ Requirements:
 - Toggle done/undone (checkbox)
 - Delete todo (button)
 - Fetch from `http://localhost:3000/todos`
+- Wait for Master (or BackendDev) to confirm the API is ready before starting
+- Ask BackendDev directly if the API contract is unclear
+- Report to Master when the UI is done
 
 ## Coordination
 
-- Backend dev: design and build the API first, then tell FrontendDev it's ready
-- Frontend dev: wait for BackendDev's API confirmation, then build against it
-- Both: read this file, use PiNet to communicate (pinet_send / pinet_mail)
+- **Master → BackendDev**: assign backend task, review code, approve
+- **Master → FrontendDev**: tell when to start, review code, approve
+- **BackendDev → Master**: report API ready, report issues
+- **FrontendDev → Master**: report UI done, report issues
+- **FrontendDev ↔ BackendDev**: clarify API details directly (no need to go through Master)
+- All agents use PiNet tools: `pinet_send`, `pinet_mail`, `pinet_list`
