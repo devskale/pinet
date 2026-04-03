@@ -79,7 +79,7 @@ function teamUnread(team: string): number {
 // Login
 // =============================================================================
 
-function doLogin(pi: ExtensionAPI, name: string, teams: string[], teamRoles: Record<string, string>, ctx: any) {
+function doLogin(pi: ExtensionAPI, name: string, teams: string[], teamRoles: Record<string, string>, ctx: any, force: boolean = false) {
   // Validate
   if (!NAME_PATTERN.test(name)) {
     ctx.ui?.notify?.("Invalid name. Use letters, numbers, _ or -.", "error");
@@ -94,11 +94,11 @@ function doLogin(pi: ExtensionAPI, name: string, teams: string[], teamRoles: Rec
 
   // Check name conflict
   const presenceFile = pinetPath("presence", `${name}.json`);
-  if (exists(presenceFile)) {
+  if (!force && exists(presenceFile)) {
     try {
       const pe = JSON.parse(readFile(presenceFile));
       if (pe.status === "online" && isProcessAlive(pe.pid) && pe.pid !== process.pid) {
-        ctx.ui?.notify?.(`"${name}" is already online (PID ${pe.pid})`, "error");
+        ctx.ui?.notify?.(`"${name}" is already online (PID ${pe.pid}). Use /pinet off first, or /pinet --force ${name} to override.`, "error");
         return;
       }
     } catch { /* stale file, proceed */ }
@@ -253,18 +253,24 @@ export default function (pi: ExtensionAPI) {
       // ── Logout ──────────────────────────────────
       if (arg === "off") return doLogout(ctx);
 
+      // ── Force override ───────────────────────────
+      const force = arg.startsWith("--force");
+      const cleanArg = force ? arg.replace(/--force\s*/, "").trim() : arg;
+      const effectiveArg = cleanArg;
+
       // ── Status ──────────────────────────────────
-      if (!arg && myName) return showStatus(ctx);
+      if (!effectiveArg && myName) return showStatus(ctx);
 
       // ── Auto-login ──────────────────────────────
-      if (!arg && !myName) {
+      if (!effectiveArg && !myName) {
         const binding = readBinding();
         return doLogin(
           pi,
           binding ? binding.name : generateName(),
           binding ? binding.teams : [],
           {},
-          ctx
+          ctx,
+          force
         );
       }
 
@@ -278,8 +284,8 @@ export default function (pi: ExtensionAPI) {
       }
 
       // ── Login with arg ──────────────────────────
-      const { name, teams, teamRoles } = parseLoginArg(arg);
-      doLogin(pi, name, teams, teamRoles, ctx);
+      const { name, teams, teamRoles } = parseLoginArg(effectiveArg);
+      doLogin(pi, name, teams, teamRoles, ctx, force);
     },
   });
 
