@@ -36,7 +36,7 @@
 
 ### Extras added beyond original plan
 
-- **Folder→identity bindings** — `/pinet` with no args reclaims last identity from cwd (`~/.pinet/bindings/<cwd-hash>.json`)
+- **Folder→identity bindings** — `/pinet` with no args reclaims last identity from cwd
 - **Name generation** — `/pinet` with no args and no binding → auto-generates `SwiftFox`, `NeonDusk` etc
 - **Team unread counts** — `/pinet` status and `pinet_team_list` show unread count per team
 - **Modular code** — 5-file structure: types, store, watchers, tools, index
@@ -49,141 +49,135 @@ Let agents control how intrusive incoming messages are. Three modes per team:
 
 | Mode | Behavior |
 |------|----------|
-| `interrupt` (default) | `triggerTurn: true` — LLM responds immediately |
-| `digest` | Messages queue, delivered as batch every N seconds or M messages |
-| `silent` | Messages queue, no auto-delivery. Agent checks manually via `pinet_team_read`. |
+| **interrupt** | Messages delivered immediately via `pi.sendMessage({ triggerTurn: true })`. LLM sees the message and responds right away. Default mode. |
+| **digest** | Messages queue until the agent asks for them with `pinet_team_read`. No `triggerTurn`. Agent stays focused on its current task, reads team backlog when ready. |
+| **silent** | Messages queue, no auto-trigger. Agent checks manually with `pinet_mail`. Same as digest but more explicit. |
 
-The problem this solves: when a team is chatty (4 agents actively talking), every message triggers an LLM turn on every other agent. That's expensive and disruptive. Delivery modes let agents batch or mute team noise.
+**Why this matters:** In a 4-agent team the main timeline gets chatty. BackendDev doesn't want to be interrupted 20 times while building the API. Delivery modes let each agent set their own interruption budget.
 
-Not yet implemented. Requires:
-- Per-team mode setting (stored in memory, optionally in binding)
-- `digest` needs a timer or counter that flushes queued messages
-- `silent` just means the watcher doesn't call `pi.sendMessage()`
-
----
-
-## Phase 2c: Threads (not started)
-
-Sub-conversations within a team. Like Slack threads — someone sends a message, others reply in a side chain instead of the main timeline.
-
-```
-team "build" messages.jsonl         ← main timeline
-team "build" threads/
-  ├── abc123.jsonl                  ← thread off message abc123
-  └── def456.jsonl                  ← thread off message def456
-```
-
-A thread is started by replying to a specific message ID. Thread messages have a `threadId` field. The main timeline stays clean.
-
-Useful when multiple topics are discussed simultaneously in a team. Without threads, everything is one flat timeline.
-
----
-
-## Phase 2d: Read Receipts (not started)
-
-The sender knows their message was seen. Like WhatsApp blue checks.
-
-Each agent writes read pointers: `~/.pinet/teams/<team>/.read/<name>.json` with `{ lastRead: <timestamp> }`. Senders can check who has read up to what point.
-
-Tool: `pinet_team_read` would also update the read pointer. New tool: `pinet_team_receipts <team> <messageId>` to see who read a specific message.
-
-Useful for knowing if your assignment was actually seen, not just sent.
-
----
-
-## Phase 2e: Reactions (not started)
-
-Quick feedback without writing a full message. 👍 ✅ ❌ 🚧
-
-```json
-{ "id": "uuid", "type": "reaction", "from": "BackendDev", "emoji": "👍", "messageId": "abc123", "timestamp": "..." }
-```
-
-Stored in the team's messages.jsonl alongside regular messages. Rendered inline in delivery. Agents can react to acknowledge without starting a conversation.
-
----
-
-## Phase 2f: Mentions (not started)
-
-`@AgentName` in a message body overrides delivery mode for that specific agent. Even if the agent is in `silent` mode for the team, an @mention triggers immediate delivery.
-
-```
-"Hey @BackendDev — CORS is broken, can you fix?"
-```
-
-The `@` prefix is detected during delivery. If the mentioned agent is in `silent` or `digest` mode, this specific message still gets delivered immediately.
-
----
-
-## Phase 2g: Pinned Messages (not started)
-
-Team context that sticks. Pinned message IDs are stored in the team meta:
+**Implementation:** per-team mode stored in team `meta.json`:
 
 ```json
 {
   "name": "build",
   "members": ["Master", "BackendDev", "FrontendDev", "Tester"],
-  "pinned": ["msg-id-1", "msg-id-2"],
-  "created": "..."
+  "delivery": {
+    "Master": "interrupt",
+    "BackendDev": "digest",
+    "FrontendDev": "interrupt",
+    "Tester": "silent"
+  }
 }
 ```
 
-Tool: `pinet_team_pin <team> <messageId>` to pin. Pinned messages are included in the team summary when an agent joins or checks status.
+Tool to change mode: `pinet_team_mode`.
 
-Useful for: task assignments, API contracts, important decisions — things everyone should see without scrolling.
+## Phase 2c: Threads (not started)
+
+Sub-conversations within a team. Like Slack threads — a reply chain off the main timeline instead of flat messages.
+
+```
+team: build/
+├── messages.jsonl          # main timeline
+└── threads/
+    └── <thread-id>.jsonl   # sub-conversations
+```
+
+When the main timeline gets noisy with multiple simultaneous topics, threads let agents fork side conversations without polluting the main channel.
+
+**Why defer:** One flat timeline works fine for small teams (2-4 agents). Threads add complexity. Implement when a real scenario demonstrates the need.
+
+## Phase 2d: Read Receipts (not started)
+
+The sender knows their message was seen. Like WhatsApp blue checks.
+
+```json
+{"id":"uuid","from":"BackendDev","to":"FrontendDev","body":"API is live","timestamp":"...","readAt":"2026-04-03T11:00:00Z"}
+```
+
+When FrontendDev reads the message (via watcher or `pinet_mail`), the mailbox entry gets updated with `readAt`.
+
+**Why defer:** Useful for senders to know their message landed. But agents are LLMs — they don't emotionally need acknowledgment. The team timeline inherently provides visibility. Implement when a real scenario shows agents wasting time re-sending because they don't know if their message was seen.
+
+## Phase 2e: Reactions (not started)
+
+Quick emoji feedback on messages — 👍 ❤ 🚀 ❓ — without writing a full message.
+
+```json
+{"id":"uuid","from":"Master","team":"build","reaction":"👍","reactTo":"<msg-id>","timestamp":"..."}
+```
+
+**Why defer:** Fun but not essential. Agents communicate via text. Reactions are a human UX pattern applied to agents. Implement for polish, not for function.
+
+## Phase 2f: Mentions (not started)
+
+`@AgentName` in a message body forces delivery even if the agent has delivery mode set to silent/digest. Overrides the per-team mode for that specific message.
+
+**Why defer:** Nice-to-have. Agents already address each other by name in message text. The LLM naturally reads "BackendDev: please fix the CORS issue" and BackendDev responds. Formal `@` mentions with forced delivery are useful only when agents are in digest/silent mode and you need to escalate.
+
+## Phase 2g: Pinned Messages (not started)
+
+Mark specific messages as pinned context in a team. Always returned when reading the team timeline, regardless of read pointer.
+
+```json
+{"id":"uuid","pinned":true,"from":"Master","team":"build","body":"Spec: todo app, port 3000, CORS enabled","timestamp":"..."}
+```
+
+**Why defer:** Useful for long-running teams where the original spec gets buried in hundreds of messages. But for current PiNet use cases (short sessions, <50 messages), the full timeline is easily readable. Implement when real teams get large enough to need it.
 
 ---
 
-## Phase 3: Routing (design doc at docs/routing.md)
+## Phase 3: Routing (design doc written, not built)
 
-Two routing primitives:
+See `docs/routing.md` for full design.
 
-**Mirror** — copy every message from source to destination.
-```
-team "build" → mirror to team "audit-log"
-```
+- **Mirror** — copy all messages from source to destination (team→team, agent→team)
+- **Conditional** — forward only if message matches conditions (body contains "error", from specific agent)
 
-**Conditional** — forward only if message matches a condition.
-```
-team "build" contains "error" → forward to Tester
-team "build" contains "deploy" → forward to team "ops"
-```
-
-Routes are JSON files in `~/.pinet/routes/`. Evaluated by the sender after writing. No background process needed. Loop prevention: no self-mirror, no re-routing routed messages, max 1 hop.
+Routes evaluated by the sender after writing. No background process needed.
 
 Tools: `pinet_route_add`, `pinet_route_remove`, `pinet_route_list`.
 
 ---
 
-## Phase 4: CLI
+## Phase 4: CLI (not started)
 
-A `pinet` command for plain terminals — no LLM needed.
+A `pinet` command for plain terminal use — no pi/LLM needed.
 
 ```bash
-pinet who                # who's online
-pinet mail               # check your DMs
-pinet send Bob "hey"     # send a DM
-pinet team list          # show teams
-pinet team read build    # read team chat
+pinet who                    # list online agents
+pinet mail                   # check personal DMs
+pinet send Bob "hey"         # send a DM
+pinet team list              # show teams
+pinet team read build        # read team chat
 ```
 
-Useful for: observing the network, checking messages, sending quick notes, scripting (e.g. `pinet send BackendDev "deploy done"` from CI).
-
-Needs to know your identity — reads the binding for cwd, or takes `--name` flag.
+Useful for: observing the network, sending quick messages, scripting (CI pipelines).
 
 ---
 
-## Phase 5: Relay (cross-machine)
+## Phase 5: Relay (not started)
 
-WebSocket relay server (~300 lines). Agents on different machines connect through it. Store-and-forward for offline agents. Token auth.
+Cross-machine communication via WebSocket relay server. For agents on different computers.
 
-Big infrastructure effort. Only needed when agents run on different computers.
+- Relay server (~300 lines)
+- Token auth
+- Store-and-forward for offline agents
+- NAT traversal considerations
+
+Big infra effort. Implement when multi-machine is actually needed.
 
 ---
 
-## Phase 6: Agent Daemon
+## Phase 6: Agent Daemon (not started)
 
-Background process that watches mailboxes and spawns pi for offline agents on demand. Health monitoring, crash recovery.
+Background process that watches mailboxes and spawns pi on demand.
+
+- Watch all mailbox files
+- When a message arrives for an offline agent, start pi in that agent's workspace dir
+- Health monitoring, crash recovery
+
+Enables "always-on" agents without keeping terminals open. Implement after relay, when agents are on multiple machines and need to be available 24/7.
 
 ---
 
@@ -198,14 +192,10 @@ Background process that watches mailboxes and spawns pi for offline agents on de
 │   └── <name>.mailbox.jsonl       # personal DMs (one per agent)
 ├── teams/
 │   └── <team>/
-│       ├── meta.json              # { members: [...], pinned: [...] }
-│       ├── messages.jsonl         # shared timeline
-│       └── threads/
-│           └── <msg-id>.jsonl     # sub-conversations
-├── presence/
-│   └── <name>.json                # { status, pid, lastSeen }
-└── routes/
-    └── <route-name>.json          # mirror + conditional rules
+│       ├── meta.json              # { members, delivery modes }
+│       └── messages.jsonl         # shared timeline
+└── presence/
+    └── <name>.json                # { status, pid, lastSeen }
 ```
 
 ## Code structure
@@ -233,3 +223,14 @@ pinet/
 | Model per workspace | `.pi/settings.json` in each agent dir. Not all agents need strong models. |
 | Symlink extension per dir | Extension is project-local, not global. Each workspace links it. |
 | `store.ts` has zero pi dependency | Clean separation — could be extracted as standalone lib |
+
+---
+
+## What's next (priority order)
+
+1. **Real 4-agent build test** — todo-app scenario. Proves teams for real code.
+2. **Phase 2b: Delivery modes** — interrupt/digest/silent. Real UX improvement.
+3. **Phase 3: Routing** — mirror + conditional. Design ready.
+4. **Phase 4: CLI** — observe without pi. Useful immediately.
+5. **Phase 5: Relay** — cross-machine. Big effort.
+6. **Phase 6: Daemon** — always-on agents. After relay.
