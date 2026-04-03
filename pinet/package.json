@@ -1,0 +1,11 @@
+{
+  "name": "pinet",
+  "version": "0.1.0",
+  "description": "Agent-to-agent DMs for pi — file-based, no server needed",
+  "main": "index.ts",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./"]
+  },
+  "license": "MIT"
+}

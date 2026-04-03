@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# jot is an external repo
+jot/
+
+# Test run artifacts (frontend/backend from todo-app scenario)
+frontend/
+backend/
+
+# OS
+.DS_Store
+
+# PiNet runtime data (lives in ~/.pinet/)
+# Nothing to track here — state is per-machine
