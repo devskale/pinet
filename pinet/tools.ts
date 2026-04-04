@@ -184,7 +184,7 @@ export function registerTeamTools(pi: ExtensionAPI) {
         timestamp: new Date().toISOString(),
       } satisfies TeamMessage);
 
-      return textReply(`Message sent to #${team}.`);
+      return textReply(`Message sent to #${team}: ${message}`);
     },
   });
 
