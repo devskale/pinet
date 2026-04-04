@@ -221,7 +221,7 @@ function startSyncDaemon(ctx: any) {
   }
 
   syncProcess = child_process.fork(syncPath, [], {
-    stdio: "pipe",
+    stdio: ["pipe", "pipe", "pipe", "ipc"],
     detached: false,
     env: { ...process.env, PINET_AGENT_NAME: myName || "" },
   });
