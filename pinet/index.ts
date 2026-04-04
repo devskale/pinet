@@ -252,13 +252,13 @@ function doMsg(args: string, ctx: any) {
     return;
   }
   if (!args) {
-    ctx.ui?.notify?("Usage: /pinet msg <agent> <message>", "warning");
+    ctx.ui?.notify?.("Usage: /pinet msg <agent> <message>", "warning");
     return;
   }
 
   const spaceIdx = args.indexOf(" ");
   if (spaceIdx === -1) {
-    ctx.ui?.notify?("Usage: /pinet msg <agent> <message>", "warning");
+    ctx.ui?.notify?.("Usage: /pinet msg <agent> <message>", "warning");
     return;
   }
 
@@ -266,7 +266,7 @@ function doMsg(args: string, ctx: any) {
   const body = args.slice(spaceIdx + 1).trim();
 
   if (!target || !body) {
-    ctx.ui?.notify?("Usage: /pinet msg <agent> <message>", "warning");
+    ctx.ui?.notify?.("Usage: /pinet msg <agent> <message>", "warning");
     return;
   }
 
