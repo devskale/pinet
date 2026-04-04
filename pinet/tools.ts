@@ -118,8 +118,7 @@ export function registerTeamTools(pi: ExtensionAPI) {
       const lastSend = teamLastSend.get(team) || 0;
       if (now - lastSend < TEAM_SEND_MIN_GAP_MS) return textReply(`Wait ${Math.ceil((TEAM_SEND_MIN_GAP_MS - (now - lastSend)) / 1000)}s.`);
       const times = (teamSendLog.get(team) || []).filter(t => now - t < TEAM_SEND_WINDOW_MS);
- if (times.length >= TEAM_SEND_LIMIT) return textReply(`Rate limited.`);
-);
+      if (times.length >= TEAM_SEND_LIMIT) return textReply(`Rate limited.`);
       times.push(now);
       teamSendLog.set(team, times);
       teamLastSend.set(team, now);
