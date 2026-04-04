@@ -246,8 +246,11 @@ function startSyncDaemon(ctx: any) {
     if (msg.channel === "team" && msg.lines) {
       const teamName = msg.path?.split("/")[1];
       const incoming = msg.lines
-        .map((l: any) => typeof l === "string" ? JSON.parse(l) : l)
-        .filter((m: any) => m.from !== myName);
+        .map((l: any) => {
+          if (typeof l === "string") { try { return JSON.parse(l); } catch { return null; } }
+          return l;
+        })
+        .filter((m: any) => m && m.from !== myName);
       if (incoming.length === 0 || !teamName) return;
       const summary = incoming.map((m: any) => `receive from ${m.from}@${teamName}: ${m.body}`).join("\n");
       piRef.sendMessage({ customType: "pinet-team", content: summary, display: true }, { triggerTurn: true });
