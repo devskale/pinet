@@ -9,7 +9,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
-const WebSocket = require("ws");
+const WebSocket = require("./pinet/node_modules/ws");
 
 const PINET = path.join(os.homedir(), ".pinet");
 const TB = path.join(PINET, "testbench");
