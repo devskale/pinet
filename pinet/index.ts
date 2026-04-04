@@ -40,6 +40,7 @@ import {
 let myName: string | null = null;
 let myTeams: string[] = [];
 let syncProcess: child_process.ChildProcess | null = null;
+let piRef: any = null; // stored for IPC delivery
 
 // =============================================================================
 // Parse "Name@team1,team2"
@@ -237,6 +238,27 @@ function startSyncDaemon(ctx: any) {
     syncProcess = null;
   });
 
+  // Relay IPC: deliver messages from sync daemon directly to agent
+  syncProcess.on("message", (msg: any) => {
+    if (msg.type !== "pinet-deliver") return;
+    if (!myName || !piRef) return;
+
+    if (msg.channel === "team" && msg.lines) {
+      const teamName = msg.path?.split("/")[1];
+      const incoming = msg.lines
+        .map((l: any) => typeof l === "string" ? JSON.parse(l) : l)
+        .filter((m: any) => m.from !== myName);
+      if (incoming.length === 0 || !teamName) return;
+      const summary = incoming.map((m: any) => `receive from ${m.from}@${teamName}: ${m.body}`).join("\n");
+      piRef.sendMessage({ customType: "pinet-team", content: summary, display: true }, { triggerTurn: true });
+    }
+
+    if (msg.channel === "write") {
+      const summary = `receive from ${msg.from}: ${msg.content}`;
+      piRef.sendMessage({ customType: "pinet", content: summary, display: true }, { triggerTurn: true });
+    }
+  });
+
   ctx.ui?.notify?.("Sync daemon started — relay bridge active", "info");
 }
 
@@ -312,6 +334,8 @@ function doMsg(args: string, ctx: any) {
 // =============================================================================
 
 export default function (pi: ExtensionAPI) {
+  piRef = pi;
+
   pi.registerCommand("pinet", {
     description: "PiNet: /pinet [name][@team] | off | msg <agent> <text> | whoami",
 

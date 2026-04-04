@@ -240,10 +240,16 @@ function handleRemoteChange(msg) {
       fs.appendFileSync(filePath, lines.join("\n") + "\n");
       const newCount = lineCount(filePath);
       fileLineCounts.set(filePath, newCount);
+      // Send to parent process via IPC for direct delivery
+      try { process.send({ type: "pinet-deliver", channel: "team", path: msg.path, from: msg.from, lines: msg.lines }); } catch (_e) {}
+
       console.log(`↓ Received ${lines.length} line(s): ${msg.path} (from ${msg.from})`);
     } else if (msg.type === "write" && msg.content != null) {
       const content = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
       fs.writeFileSync(filePath, content);
+      // Send DM to parent process via IPC
+      try { process.send({ type: "pinet-deliver", channel: "write", path: msg.path, from: msg.from, content: msg.content }); } catch (_e) {}
+
       console.log(`↓ Received write: ${msg.path} (from ${msg.from})`);
     }
   } catch (err) {
