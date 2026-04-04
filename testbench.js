@@ -60,9 +60,12 @@ function startRelay() {
     const tokenFile = p("relay-token");
     fs.writeFileSync(tokenFile, NETWORK_TOKEN);
 
+    // Use a random port for HTTP to avoid conflicts
+    const HTTP_PORT = RELAY_PORT + 1;
     relayProc = spawn("node", [
       path.join(__dirname, "pinet", "relay.js"),
       "--port", String(RELAY_PORT),
+      "--http-port", String(HTTP_PORT),
       "--token-file", tokenFile,
     ], { stdio: ["pipe", "pipe", "pipe"] });
 

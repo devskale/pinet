@@ -120,7 +120,7 @@ export function startTeamWatcher(pi: ExtensionAPI, teamName: string) {
 
 function deliverPersonal(pi: ExtensionAPI, messages: PersonalMessage[]) {
   if (messages.length === 0) return;
-  const summary = messages.map((m) => `receive ${m.from}@DM: ${m.body}`).join("\n");
+  const summary = incoming.map((m) => `receive ${m.from}@${teamName}: ${m.body}`).join("\n");
   pi.sendMessage(
     {
       customType: "pinet",
