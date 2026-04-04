@@ -12,6 +12,7 @@
  *   /pinet off                   — go offline
  */
 
+import type { AutocompleteItem } from "@mariozechner/pi-tui";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import * as child_process from "node:child_process";
 import * as path from "node:path";
@@ -312,7 +313,33 @@ function doMsg(args: string, ctx: any) {
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("pinet", {
-    description: "PiNet: /pinet [name][@team] | /pinet off | /pinet (status)",
+    description: "PiNet: /pinet [name][@team] | off | msg <agent> <text> | whoami",
+
+    getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+      const subcommands = ["off", "msg", "whoami"];
+
+      // First word — subcommand or login pattern
+      if (!prefix.includes(" ")) {
+        const items = [...subcommands, ...subcommands];
+        // If typing "msg ", suggest agents
+        if (prefix === "msg" || prefix.startsWith("msg ")) {
+          return null; // fall through to second-word logic
+        }
+        const matches = items.filter(i => i.startsWith(prefix));
+        if (matches.length > 0) return matches.map(m => ({ value: m, label: m }));
+        return null;
+      }
+
+      // After "msg " — suggest online agents as target
+      const parts = prefix.split(" ");
+      if (parts[0] === "msg" && parts.length === 2 && !parts[1].includes(" ")) {
+        const agents = readAllPresence().filter(p => p.status === "online" && p.name !== myName).map(p => p.name);
+        const filtered = agents.filter(a => a.toLowerCase().startsWith(parts[1].toLowerCase()));
+        if (filtered.length > 0) return filtered.map(a => ({ value: `msg ${a} `, label: a }));
+      }
+
+      return null;
+    },
 
     handler: async (args, ctx) => {
       const arg = args.trim();
