@@ -356,7 +356,7 @@ wss.on("connection", (ws, req) => {
 
     if (msg.type === "append" || msg.type === "write") {
       const agent = agents.get(agentName);
-      const fwd = { ...msg, from: agent?.machine || agentName };
+      const fwd = { ...msg, from: agent?.machine || agentName, agent: agentName };
       broadcast(fwd, ws);
       return;
     }

@@ -225,7 +225,8 @@ function handleRemoteChange(msg) {
   if (!config) return;
 
   // Skip our own writes bouncing back through the relay
-  if (msg.from === config.machine) return;
+  const myAgent = AGENT_OVERRIDE || config.agent || config.machine;
+  if (msg.agent === myAgent) return;
 
   const filePath = path.join(PINET_DIR, msg.path);
   ensureDir(path.dirname(filePath));
