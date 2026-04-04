@@ -285,7 +285,7 @@ function doMsg(args: string, ctx: any) {
     id: crypto.randomUUID(),
     from: myName,
     body: `@${target} ${body}`,
-    ts: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
   };
 
   appendJsonl(pinetPath("teams", team, "messages.jsonl"), msg);
