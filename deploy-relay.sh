@@ -46,11 +46,11 @@ sleep 1
 curl -s http://localhost:7654 2>/dev/null && echo "" || true
 
 echo ">>> Testing dashboard..."
-curl -s http://localhost:8080/api/stats | python3 -m json.tool 2>/dev/null || echo "(stats not ready yet)"
+curl -s http://localhost:8081/api/stats | python3 -m json.tool 2>/dev/null || echo "(stats not ready yet)"
 
 echo ""
 echo "=== Deploy complete ==="
 echo "Relay:    ws://$REMOTE_HOST:7654"
-echo "Dashboard: http://$REMOTE_HOST:8080"
-echo "Stats API: http://$REMOTE_HOST:8080/api/stats"
+echo "Dashboard: http://$REMOTE_HOST:8081"
+echo "Stats API: http://$REMOTE_HOST:8081/api/stats"
 DEPLOY

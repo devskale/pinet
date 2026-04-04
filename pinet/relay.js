@@ -50,6 +50,7 @@ const fs = require("node:fs");
 const { values } = parseArgs({
   options: {
     port: { type: "string", default: "7654" },
+    "http-port": { type: "string", default: "8081" },
     token: { type: "string" },
     "token-file": { type: "string" },
     "heartbeat-ms": { type: "string", default: "30000" },
@@ -69,7 +70,7 @@ if (!TOKEN) {
 }
 
 const PORT = parseInt(values.port, 10);
-const HTTP_PORT = parseInt(values["http-port"], 10) || 8080;
+const HTTP_PORT = parseInt(values["http-port"], 10) || 8081;
 const HEARTBEAT_MS = parseInt(values["heartbeat-ms"], 10);
 const AUTH_TIMEOUT_MS = parseInt(values["auth-timeout-ms"], 10);
 

@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=woodmastr
 WorkingDirectory=/home/woodmastr/code/pinet
-ExecStart=/home/woodmastr/.nvm/versions/node/v24.13.0/bin/node /home/woodmastr/code/pinet/pinet/relay.js --port 7654 --http-port 8080 --token-file /home/woodmastr/code/pinet/relay-token
+ExecStart=/home/woodmastr/.nvm/versions/node/v24.13.0/bin/node /home/woodmastr/code/pinet/pinet/relay.js --port 7654 --http-port 8081 --token-file /home/woodmastr/code/pinet/relay-token
 Restart=on-failure
 RestartSec=5
 Environment=NODE_ENV=production
