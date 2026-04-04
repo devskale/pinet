@@ -60,6 +60,14 @@ export function getTeamLineCount(team: string): number {
   return teamStates.get(team)?.lineCount ?? 0;
 }
 
+/** Advance line count for a team (called after /pinet msg writes directly) */
+export function bumpTeamLineCount(teamName: string) {
+  const state = teamStates.get(teamName);
+  if (!state) return;
+  const filePath = pinetPath("teams", teamName, "messages.jsonl");
+  state.lineCount = countLines(filePath);
+}
+
 /** Start watching the personal mailbox */
 export function startPersonalWatcher(pi: ExtensionAPI) {
   if (!myName) return;

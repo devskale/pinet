@@ -25,7 +25,7 @@ import { NAME_PATTERN, TeamMessage } from "./types";
 import {
   startPersonalWatcher, startTeamWatcher,
   resetWatchers, getPersonalLineCount, getTeamLineCount,
-  setWatcherIdentity,
+  bumpTeamLineCount, setWatcherIdentity,
 } from "./watchers";
 import {
   registerPersonalTools, registerTeamTools,
@@ -289,6 +289,7 @@ function doMsg(args: string, ctx: any) {
   };
 
   appendJsonl(pinetPath("teams", team, "messages.jsonl"), msg);
+  bumpTeamLineCount(team);
   ctx.ui?.notify?.(`→ #${team} @${target}: ${body}`, "info");
 }
 
