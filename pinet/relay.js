@@ -173,7 +173,7 @@ td{padding:.5rem .8rem;border-bottom:1px solid #21262d;font-size:.9rem}
 <p class="refresh">Auto-refreshes every 10s</p>
 <script>
 function fmt(iso){const s=Math.floor((Date.now()-new Date(iso).getTime())/1000);const d=Math.floor(s/86400);const h=Math.floor(s%86400/3600);const m=Math.floor(s%3600/60);return d>0?d+"d "+h+"h":h>0?h+"h "+m+"m":m+"m"}
-function refresh(){fetch("/api/stats").then(r=>r.json()).then(d=>{document.getElementById("agents").textContent=d.agents.length;document.getElementById("agents-max").textContent="of "+d.maxAgents;document.getElementById("teams").textContent=d.teamList.length;document.getElementById("teams-max").textContent="of "+d.maxTeams;document.getElementById("started").textContent=new Date(d.startedAt).toLocaleString();document.getElementById("uptime").textContent="Up "+fmt(d.startedAt)+" — "+d.agents.length+" agents, "+d.teamList.length+" teams";const at=document.getElementById("agent-table");at.innerHTML=d.agents.map(a=>"<tr><td><span class=\"dot on\"></span>"+a.name+"</td><td>"+a.machine+"</td><td>"+a.teams.map(t=>"#"+t).join(", ")+"</td></tr>").join("");const tt=document.getElementById("team-table");tt.innerHTML=d.teamList.map(t=>"<tr><td>#"+t.name+"</td><td>"+t.members.join(", ")+"</td><td>"+t.members.length+"/"+t.max+"</td></tr>").join("")}).catch(()=>{})}
+console.log('PiNet dashboard loaded, agents:',0);function refresh(){fetch('/api/stats').then(r=>r.json()).then(d=>{console.log('stats:',JSON.stringify(d));document.getElementById('agents').textContent=d.agents.length;document.getElementById('agents-max').textContent='of '+d.maxAgents;document.getElementById('teams').textContent=d.teamList.length;document.getElementById('teams-max').textContent='of '+d.maxTeams;document.getElementById('started').textContent=new Date(d.startedAt).toLocaleString();document.getElementById('uptime').textContent='Up '+fmt(d.startedAt)+' \u2014 '+d.agents.length+' agents, '+d.teamList.length+' teams';const at=document.getElementById('agent-table');at.innerHTML=d.agents.map(a=>'<tr><td>\u25CF '+a.name+'</td><td>'+a.machine+'</td><td>'+a.teams.map(t=>'#'+t).join(', ')+'</td></tr>').join('');const tt=document.getElementById('team-table');tt.innerHTML=d.teamList.map(t=>'<tr><td>#'+t.name+'</td><td>'+t.members.join(', ')+'</td><td>'+t.members.length+'/'+t.max+'</td></tr>').join('')}).catch(()=>{})}
 refresh();setInterval(refresh,10000);
 </script>
 </body>
@@ -195,7 +195,7 @@ const httpServer = http.createServer((req, res) => {
     }));
     return;
   }
-  res.writeHead(200, { "Content-Type": "text/html" });
+  res.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-cache, no-store, must-revalidate" });
   res.end(DASHBOARD_HTML);
 });
 

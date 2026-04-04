@@ -14,6 +14,9 @@ import { WebSocket } from "ws";
 const PINET_DIR = path.join(process.env.HOME || "~", ".pinet");
 const RELAY_CONFIG = path.join(PINET_DIR, "relay.json");
 
+// Allow override: PINET_AGENT_NAME=BackendDev node sync.js
+const AGENT_OVERRIDE = process.env.PINET_AGENT_NAME || null;
+
 // =============================================================================
 // State
 // =============================================================================
@@ -95,7 +98,7 @@ function connect() {
       type: "auth",
       token: config.token,
       machine: config.machine,
-      agent: config.agent || config.machine,
+      agent: AGENT_OVERRIDE || config.agent || config.machine,
       teams: config.teams || {},
     }));
   });
