@@ -134,50 +134,11 @@ const startedAt = new Date().toISOString();
 const http = require("http");
 
 const DASHBOARD_HTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PiNet Relay</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0d1117;color:#c9d1d9;padding:2rem}
-h1{color:#58a6ff;margin-bottom:.5rem;font-size:1.8rem}
-.subtitle{color:#8b949e;margin-bottom:2rem}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:2rem}
-.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:1.2rem}
-.card .label{color:#8b949e;font-size:.8rem;text-transform:uppercase;letter-spacing:.05em}
-.card .value{color:#58a6ff;font-size:2rem;font-weight:700;margin-top:.3rem}
-.card .value.green{color:#3fb950}
-.card .max{color:#484f58;font-size:.9rem}
-.section{margin-bottom:2rem}
-.section h2{color:#c9d1d9;font-size:1.1rem;margin-bottom:.8rem;border-bottom:1px solid #21262d;padding-bottom:.5rem}
-table{width:100%;border-collapse:collapse}
-th{text-align:left;color:#8b949e;font-weight:500;font-size:.8rem;text-transform:uppercase;padding:.5rem .8rem;border-bottom:1px solid #21262d}
-td{padding:.5rem .8rem;border-bottom:1px solid #21262d;font-size:.9rem}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:.5rem}
-.dot.on{background:#3fb950}
-.refresh{color:#484f58;font-size:.8rem;margin-top:1rem}
-</style>
-</head>
-<body>
-<h1>⚡ PiNet Relay</h1>
-<p class="subtitle" id="uptime">—</p>
-<div class="grid">
-  <div class="card"><div class="label">Agents Online</div><div class="value green" id="agents">0</div><div class="max" id="agents-max"></div></div>
-  <div class="card"><div class="label">Active Teams</div><div class="value" id="teams">0</div><div class="max" id="teams-max"></div></div>
-  <div class="card"><div class="label">Started</div><div class="value" id="started" style="font-size:1.1rem">—</div></div>
-</div>
-<div class="section"><h2>Agents</h2><table><thead><tr><th>Name</th><th>Machine</th><th>Teams</th></tr></thead><tbody id="agent-table"></tbody></table></div>
-<div class="section"><h2>Teams</h2><table><thead><tr><th>Team</th><th>Members</th><th>Capacity</th></tr></thead><tbody id="team-table"></tbody></table></div>
-<p class="refresh">Auto-refreshes every 10s</p>
-<script>
-function fmt(iso){const s=Math.floor((Date.now()-new Date(iso).getTime())/1000);const d=Math.floor(s/86400);const h=Math.floor(s%86400/3600);const m=Math.floor(s%3600/60);return d>0?d+"d "+h+"h":h>0?h+"h "+m+"m":m+"m"}
-console.log('PiNet dashboard loaded, agents:',0);function refresh(){fetch('/api/stats').then(r=>r.json()).then(d=>{console.log('stats:',JSON.stringify(d));document.getElementById('agents').textContent=d.agents.length;document.getElementById('agents-max').textContent='of '+d.maxAgents;document.getElementById('teams').textContent=d.teamList.length;document.getElementById('teams-max').textContent='of '+d.maxTeams;document.getElementById('started').textContent=new Date(d.startedAt).toLocaleString();document.getElementById('uptime').textContent='Up '+fmt(d.startedAt)+' \u2014 '+d.agents.length+' agents, '+d.teamList.length+' teams';const at=document.getElementById('agent-table');at.innerHTML=d.agents.map(a=>'<tr><td>\u25CF '+a.name+'</td><td>'+a.machine+'</td><td>'+a.teams.map(t=>'#'+t).join(', ')+'</td></tr>').join('');const tt=document.getElementById('team-table');tt.innerHTML=d.teamList.map(t=>'<tr><td>#'+t.name+'</td><td>'+t.members.join(', ')+'</td><td>'+t.members.length+'/'+t.max+'</td></tr>').join('')}).catch(()=>{})}
-refresh();setInterval(refresh,10000);
-</script>
-</body>
-</html>`;
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>pinet</title></head>
+<body style="font-family:monospace;background:#000;color:#fff;padding:2rem;max-width:640px">
+<pre id="out">loading...</pre>
+<script>function fmt(ms){const s=Math.floor(ms/1000),m=Math.floor(s/60),h=Math.floor(m/60),d=Math.floor(h/24);return d?d+'d '+h%24+'h':h?h%24+'h '+m%60+'m':m+'m'}function refresh(){fetch('/api/stats').then(r=>r.json()).then(d=>{let o='pinet relay';o+='\\n  up '+fmt(d.uptime)+'  agents '+d.agents.length+'/'+d.maxAgents+'  teams '+d.teamList.length+'/'+d.maxTeams;o+='\\n';if(d.agents.length){o+='\\nagents';for(const a of d.agents)o+='\\n  '+a.name+'  '+a.machine+'  '+a.teams.map(t=>'#'+t).join(' ')}else o+='\\n  no agents';if(d.teamList.length){o+='\\n\\nteams';for(const t of d.teamList)o+='\\n  #'+t.name+'  '+t.members.join(', ')+'  ('+t.members.length+'/'+t.max+')'}else o+='\\n\\n  no teams';o+='\\n';document.getElementById('out').textContent=o}).catch(()=>{})}refresh();setInterval(refresh,5000);</script>
+</body></html>`;
 
 const httpServer = http.createServer((req, res) => {
   if (req.url === "/api/stats") {
