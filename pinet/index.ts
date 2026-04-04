@@ -253,7 +253,7 @@ function startSyncDaemon(ctx: any) {
         .filter((m: any) => m && m.from !== myName);
       if (incoming.length === 0 || !teamName) return;
       const summary = incoming.map((m: any) => `receive from ${m.from}@${teamName}: ${m.body}`).join("\n");
-      piRef.sendMessage({ customType: "pinet-team", content: `New team message in #${teamName}. Use pinet_team_read to read it.\n${summary}`, display: true }, { triggerTurn: true });
+      piRef.sendMessage({ customType: "pinet-team", content: summary, display: true }, { triggerTurn: true });
     }
 
     if (msg.channel === "write") {
