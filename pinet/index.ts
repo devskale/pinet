@@ -246,6 +246,19 @@ function stopSyncDaemon() {
   }
 }
 
+function doWhoami(ctx: any) {
+  if (!myName) {
+    ctx.ui?.notify?.("Not logged in.", "warning");
+    return;
+  }
+  const teams = myTeams.length > 0 ? myTeams.map(t => {
+    const meta = readJson(pinetPath("teams", t, "meta.json")) as any;
+    const role = meta?.roles?.[myName] || "member";
+    return `#${t} (${role})`;
+  }).join(", ") : "none";
+  ctx.ui?.notify?.(`${myName} — Teams: ${teams}`, "info");
+}
+
 function doMsg(args: string, ctx: any) {
   if (!myName) {
     ctx.ui?.notify?.("Not logged in. Use /pinet <name>@<team> first.", "warning");
@@ -306,6 +319,7 @@ export default function (pi: ExtensionAPI) {
 
       // ── Logout ──────────────────────────────────
       if (arg === "off") return doLogout(ctx);
+      if (arg === "whoami") return doWhoami(ctx);
 
       // ── Send message to team member ────────────
       if (arg.startsWith("msg ")) return doMsg(arg.slice(4).trim(), ctx);
