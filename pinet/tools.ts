@@ -25,12 +25,12 @@ import { PersonalMessage, TeamMessage } from "./types";
 let myName: string | null = null;
 let myTeams: string[] = [];
 
-// Rate limiting: max team sends per minute
-const TEAM_SEND_LIMIT = 10;          // max sends per agent per team per minute
-const TEAM_SEND_WINDOW_MS = 60_000;  // 1 minute
-const TEAM_SEND_MIN_GAP_MS = 5_000;  // min 5s between sends
-const teamSendLog = new Map<string, number[]>(); // team → timestamps
-const teamLastSend = new Map<string, number>();    // team → last send timestamp
+// Rate limiting
+const TEAM_SEND_LIMIT = 10;
+const TEAM_SEND_WINDOW_MS = 60_000;
+const TEAM_SEND_MIN_GAP_MS = 5_000;
+const teamSendLog = new Map<string, number[]>();
+const teamLastSend = new Map<string, number>();
 
 export function setToolIdentity(name: string, teams: string[]) {
   myName = name;
@@ -62,8 +62,7 @@ export function registerPersonalTools(pi: ExtensionAPI) {
   pi.registerTool({
     name: "pinet_send",
     label: "Send PiNet DM",
-    description:
-      "Send a direct message to another agent. Delivered immediately if online, queued if offline.",
+    description: "Send a direct message to another agent. Be brief.",
     parameters: Type.Object({
       to: Type.String({ description: "Recipient agent name" }),
       message: Type.String({ description: "Message text" }),
@@ -71,7 +70,6 @@ export function registerPersonalTools(pi: ExtensionAPI) {
     async execute(_id, params) {
       if (!myName) return notLoggedIn();
       const { to, message } = params as { to: string; message: string };
-
       const online = readAllPresence().some((p) => p.name === to);
 
       appendJsonl(pinetPath("mailboxes", `${to}.mailbox.jsonl`), {
@@ -82,9 +80,7 @@ export function registerPersonalTools(pi: ExtensionAPI) {
         timestamp: new Date().toISOString(),
       } satisfies PersonalMessage);
 
-      return textReply(
-        `Message sent to ${to}. ${online ? "They are online." : "They are offline — message queued."}`
-      );
+      return textReply(`>> ${to}${online ? "" : " (offline)"}: ${message}`);
     },
   });
 
@@ -94,7 +90,7 @@ export function registerPersonalTools(pi: ExtensionAPI) {
     description: "Check your personal PiNet mailbox for DMs.",
     parameters: Type.Object({
       unreadOnly: Type.Optional(
-        Type.Boolean({ description: "Only show unread messages (default: true)" })
+        Type.Boolean({ description: "Only show unread (default: true)" })
       ),
     }),
     async execute(_id, params) {
@@ -104,13 +100,11 @@ export function registerPersonalTools(pi: ExtensionAPI) {
       const all = readJsonl<PersonalMessage>(pinetPath("mailboxes", `${myName}.mailbox.jsonl`));
       const messages = unreadOnly ? all.slice(getPersonalLineCount()) : all;
 
-      if (messages.length === 0) {
-        return textReply(unreadOnly ? "No unread messages." : "No messages.");
-      }
+      if (messages.length === 0) return textReply("No unread DMs.");
 
       return textReply(
         messages
-          .map((m) => `[${new Date(m.timestamp).toLocaleTimeString()}] ${m.from}: ${m.body}`)
+          .map((m) => `<< ${m.from}: ${m.body}`)
           .join("\n")
       );
     },
@@ -123,11 +117,11 @@ export function registerPersonalTools(pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute() {
       const all = readAllPresence();
-      if (all.length === 0) return textReply("No agents on the network.");
+      if (all.length === 0) return textReply("No agents.");
 
       return textReply(
         all
-          .map((p) => `${p.status === "online" ? "🟢" : "⚪"} ${p.name} (${p.status})`)
+          .map((p) => `${p.status === "online" ? "\u25CF" : "\u25CB"} ${p.name}`)
           .join("\n")
       );
     },
@@ -141,8 +135,8 @@ export function registerPersonalTools(pi: ExtensionAPI) {
 export function registerTeamTools(pi: ExtensionAPI) {
   pi.registerTool({
     name: "pinet_team_send",
-    label: "Send Team Message",
-    description: "Send a message to a team chat. All members see it.",
+    label: "pinet_team_send",
+    description: "Send a message to a team chat. Be brief and factual — no greetings, no emojis, no filler.",
     parameters: Type.Object({
       team: Type.String({ description: "Team name" }),
       message: Type.String({ description: "Message text" }),
@@ -152,25 +146,21 @@ export function registerTeamTools(pi: ExtensionAPI) {
       const { team, message } = params as { team: string; message: string };
 
       if (!myTeams.includes(team)) {
-        return textReply(`You are not in team "${team}". Your teams: ${myTeams.join(", ") || "none"}`);
+        return textReply(`Not in #${team}. Your teams: ${myTeams.map(t => "#" + t).join(", ") || "none"}`);
       }
 
-      // Rate limit check
       const now = Date.now();
-
-      // Min gap between sends
       const lastSend = teamLastSend.get(team) || 0;
       if (now - lastSend < TEAM_SEND_MIN_GAP_MS) {
         const waitSec = Math.ceil((TEAM_SEND_MIN_GAP_MS - (now - lastSend)) / 1000);
-        return textReply(`Too fast — wait ${waitSec}s between messages in #${team}.`);
+        return textReply(`Wait ${waitSec}s.`);
       }
 
-      // Per-minute cap
       const times = (teamSendLog.get(team) || []).filter(t => now - t < TEAM_SEND_WINDOW_MS);
       if (times.length >= TEAM_SEND_LIMIT) {
         const oldest = times[0];
         const waitSec = Math.ceil((TEAM_SEND_WINDOW_MS - (now - oldest)) / 1000);
-        return textReply(`Rate limited: ${TEAM_SEND_LIMIT} messages/min in #${team}. Wait ${waitSec}s.`);
+        return textReply(`Rate limited. Wait ${waitSec}s.`);
       }
       times.push(now);
       teamSendLog.set(team, times);
@@ -184,7 +174,7 @@ export function registerTeamTools(pi: ExtensionAPI) {
         timestamp: new Date().toISOString(),
       } satisfies TeamMessage);
 
-      return textReply(`Message sent to #${team}: ${message}`);
+      return textReply(`>> #${team}: ${message}`);
     },
   });
 
@@ -202,20 +192,15 @@ export function registerTeamTools(pi: ExtensionAPI) {
       if (!myName) return notLoggedIn();
       const { team, unreadOnly = true } = params as { team: string; unreadOnly?: boolean };
 
-      if (!myTeams.includes(team)) {
-        return textReply(`You are not in team "${team}".`);
-      }
+      if (!myTeams.includes(team)) return textReply(`Not in #${team}.`);
 
       const all = readTeamMessages(team);
       const messages = unreadOnly ? all.slice(getTeamLineCount(team)) : all;
-
-      if (messages.length === 0) {
-        return textReply(unreadOnly ? `No unread messages in #${team}.` : `No messages in #${team}.`);
-      }
+      if (messages.length === 0) return textReply(`No unread in #${team}.`);
 
       return textReply(
         messages
-          .map((m) => `[${new Date(m.timestamp).toLocaleTimeString()}] ${m.from}: ${m.body}`)
+          .map((m) => `<< ${m.from}: ${m.body}`)
           .join("\n")
       );
     },
@@ -224,27 +209,21 @@ export function registerTeamTools(pi: ExtensionAPI) {
   pi.registerTool({
     name: "pinet_team_list",
     label: "List Teams",
-    description: "List all teams you are a member of and their members.",
+    description: "List your teams, members, and unread counts.",
     parameters: Type.Object({}),
     async execute() {
       if (!myName) return notLoggedIn();
-      if (myTeams.length === 0) {
-        return textReply("You are not in any teams. Log in with /pinet name@team to join one.");
-      }
+      if (myTeams.length === 0) return textReply("No teams. Use /pinet name@team.");
 
       return textReply(
         myTeams
           .map((name) => {
             const meta = readTeamMeta(name);
-            const members = meta?.members.map(m => {
-              const role = meta?.roles?.[m];
-              return role ? `${m} (${role})` : m;
-            }).join(", ") ?? "unknown";
+            const members = meta?.members.join(", ") ?? "?";
             const unread = readTeamMessages(name)
               .slice(getTeamLineCount(name))
               .filter((m: TeamMessage) => m.from !== myName).length;
-            const badge = unread > 0 ? ` (${unread} unread)` : "";
-            return `#${name}: ${members}${badge}`;
+            return `#${name} [${members}]${unread > 0 ? ` ${unread} unread` : ""}`;
           })
           .join("\n")
       );

@@ -134,11 +134,11 @@ function doLogin(pi: ExtensionAPI, name: string, teams: string[], teamRoles: Rec
     readJsonl(pinetPath("mailboxes", `${name}.mailbox.jsonl`)).length -
     getPersonalLineCount();
 
-  const lines = [`Logged in as ${name} ✨`];
-  if (teams.length > 0) lines.push(`Teams: ${teams.map((t) => `#${t}`).join(", ")}`);
-  if (backlog > 0) lines.push(`${backlog} unread DMs`);
+  const lines = [`${name} online`];
+  if (teams.length > 0) lines.push(teams.map((t) => `#${t}`).join(", "));
+  if (backlog > 0) lines.push(`${backlog} DMs`);
 
-  ctx.ui?.notify?.(lines.join("\n  "), "success");
+  ctx.ui?.notify?.(lines.join(" "), "success");
 
   // Presence heartbeat — refresh lastSeen every 30s
   const heartbeat = setInterval(() => {
@@ -166,7 +166,7 @@ function doLogout(ctx: any) {
   myName = null;
   myTeams = [];
 
-  ctx.ui?.notify?.(`${name} went offline.`, "info");
+  ctx.ui?.notify?.(`${name} offline`, "info");
 }
 
 // =============================================================================
@@ -186,21 +186,21 @@ function showStatus(ctx: any) {
     readJsonl(pinetPath("mailboxes", `${myName}.mailbox.jsonl`)).length -
     getPersonalLineCount();
 
-  const lines = [`Logged in as ${myName}`];
+  const lines = [`${myName}`];
   if (myTeams.length > 0) {
     lines.push(
-      `Teams: ${myTeams
+      myTeams
         .map((t) => {
           const u = teamUnread(t);
-          return `#${t}${u > 0 ? ` (${u} unread)` : ""}`;
+          return `#${t}${u > 0 ? ` (${u})` : ""}`;
         })
-        .join(", ")}`
+        .join(", ")
     );
   }
-  lines.push(`${peers.length} peer${peers.length !== 1 ? "s" : ""} online`);
-  if (dmUnread > 0) lines.push(`${dmUnread} unread DM${dmUnread !== 1 ? "s" : ""}`);
+  lines.push(`${peers.length} peer${peers.length !== 1 ? "s" : ""}`);
+  if (dmUnread > 0) lines.push(`${dmUnread} DMs`);
 
-  ctx.ui?.notify?.(lines.join("\n  "), "info");
+  ctx.ui?.notify?.(lines.join(" "), "info");
 }
 
 // =============================================================================
@@ -304,7 +304,7 @@ function doMsg(args: string, ctx: any) {
 
   appendJsonl(pinetPath("teams", team, "messages.jsonl"), msg);
   bumpTeamLineCount(team);
-  ctx.ui?.notify?.(`→ #${team} @${target}: ${body}`, "info");
+  ctx.ui?.notify?.(`>> #${team} @${target}: ${body}`, "info");
 }
 
 // =============================================================================
