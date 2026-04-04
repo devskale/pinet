@@ -262,7 +262,7 @@ function doMsg(args: string, ctx: any) {
     return;
   }
 
-  const target = args.slice(0, spaceIdx).trim();
+  const target = args.slice(0, spaceIdx).trim().replace(/[,:;!]+$/, "");
   const body = args.slice(spaceIdx + 1).trim();
 
   if (!target || !body) {
