@@ -69,7 +69,9 @@ export function appendJsonl(filePath: string, obj: unknown) {
 /** Write a JSON file (creates parent dirs) */
 export function writeJson(filePath: string, obj: unknown) {
   ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, JSON.stringify(obj, null, 2));
+  const tmp = filePath + ".tmp." + process.pid;
+  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2));
+  fs.renameSync(tmp, filePath);
 }
 
 /** Read and parse a JSON file, returns null on failure */

@@ -240,30 +240,40 @@ function handleRemoteChange(msg) {
   const myAgent = AGENT_OVERRIDE || config.agent || config.machine;
   if (msg.agent === myAgent) return;
 
+  // Same-machine agents share the filesystem — don't write duplicate lines.
+  // Just advance our line counter and deliver via IPC.
+  const sameMachine = msg.from === config.machine;
+
   const filePath = path.join(PINET_DIR, msg.path);
   ensureDir(path.dirname(filePath));
 
-  // Mark as remote write so polling skips it
-  remoteWriteTime.set(filePath, Date.now());
-
   try {
     if (msg.type === "append" && msg.lines) {
-      // Lines might be strings or objects — normalize to strings
-      const lines = msg.lines.map(l => typeof l === "string" ? l : JSON.stringify(l));
-      fs.appendFileSync(filePath, lines.join("\n") + "\n");
-      const newCount = lineCount(filePath);
-      fileLineCounts.set(filePath, newCount);
-      // Send to parent process via IPC for direct delivery
-      try { process.send({ type: "pinet-deliver", channel: "team", path: msg.path, from: msg.from, lines: msg.lines }); } catch (_e) {}
+      if (sameMachine) {
+        // File already has these lines — just advance our counter
+        const newCount = lineCount(filePath);
+        fileLineCounts.set(filePath, newCount);
+      } else {
+        // Cross-machine: write to local file
+        remoteWriteTime.set(filePath, Date.now());
+        const lines = msg.lines.map(l => typeof l === "string" ? l : JSON.stringify(l));
+        fs.appendFileSync(filePath, lines.join("\n") + "\n");
+        const newCount = lineCount(filePath);
+        fileLineCounts.set(filePath, newCount);
+      }
+      // Always deliver via IPC so the pi agent sees the message
+      try { process.send({ type: "pinet-deliver", channel: "team", path: msg.path, from: msg.from, agent: msg.agent, lines: msg.lines }); } catch (_e) {}
 
-      console.log(`↓ Received ${lines.length} line(s): ${msg.path} (from ${msg.from})`);
+      console.log(`↓ Received ${msg.lines.length} line(s): ${msg.path} (from ${msg.from}${sameMachine ? ", same-machine" : ""})`);
     } else if (msg.type === "write" && msg.content != null) {
-      const content = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
-      fs.writeFileSync(filePath, content);
-      // Send DM to parent process via IPC
-      try { process.send({ type: "pinet-deliver", channel: "write", path: msg.path, from: msg.from, content: msg.content }); } catch (_e) {}
+      if (!sameMachine) {
+        remoteWriteTime.set(filePath, Date.now());
+        const content = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
+        fs.writeFileSync(filePath, content);
+      }
+      try { process.send({ type: "pinet-deliver", channel: "write", path: msg.path, from: msg.from, agent: msg.agent, content: msg.content }); } catch (_e) {}
 
-      console.log(`↓ Received write: ${msg.path} (from ${msg.from})`);
+      console.log(`↓ Received write: ${msg.path} (from ${msg.from}${sameMachine ? ", same-machine" : ""})`);
     }
   } catch (err) {
     console.error(`Write error for ${msg.path}: ${err.message}`);
