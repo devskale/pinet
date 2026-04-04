@@ -197,7 +197,16 @@ function poll() {
       const allLines = readJsonl(filePath);
       const newLines = allLines.slice(previousCount);
 
-      if (newLines.length > 0) {
+      // Only sync our own messages — other agents' messages come via relay
+      const myAgent = AGENT_OVERRIDE || config.agent || config.machine;
+      const ownLines = newLines.filter(l => {
+        try {
+          const obj = typeof l === "string" ? JSON.parse(l) : l;
+          return obj.from === myAgent;
+        } catch { return true; }
+      });
+
+      if (ownLines.length > 0) {
         const relativePath = path.relative(PINET_DIR, filePath);
         fileLineCounts.set(filePath, currentLines);
 
@@ -205,10 +214,13 @@ function poll() {
           type: "append",
           from: config.machine,
           path: relativePath,
-          lines: newLines,
+          lines: ownLines,
         }));
 
-        console.log(`↑ Synced ${newLines.length} line(s): ${relativePath}`);
+        console.log(`↑ Synced ${ownLines.length} line(s): ${relativePath}`);
+      } else {
+        // Still advance the line count so we don't re-read these
+        fileLineCounts.set(filePath, currentLines);
       }
     } else {
       // Update count even if no change (file might have been replaced)
