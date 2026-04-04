@@ -6,15 +6,18 @@
 |-------|---------|--------|
 | 1 | Personal DMs | ✅ Done + validated |
 | 2a | Teams (core) | ✅ Done + validated |
-| 2b | Delivery modes | 🔲 Designed, not built |
-| 2c | Threads | 🔲 Not started |
-| 2d | Read receipts | 🔲 Not started |
-| 2e | Reactions | 🔲 Not started |
-| 2f | Mentions | 🔲 Not started |
-| 2g | Pinned messages | 🔲 Not started |
+| 2b | Direct team messages (`/pinet msg`) | ✅ Done |
+| 2c | Delivery modes | 🔲 Designed, not built |
+| 2d | Threads | 🔲 Not started |
+| 2e | Read receipts | 🔲 Not started |
+| 2f | Reactions | 🔲 Not started |
+| 2g | Mentions | 🔲 Not started |
+| 2h | Pinned messages | 🔲 Not started |
 | 3 | Routing (mirror + conditional) | 🔲 Design doc written |
 | 4 | CLI | 🔲 Not started |
-| 5 | Relay (cross-machine) | 🔲 Design doc written |
+| 5 | Relay (cross-machine) | ✅ Done + validated |
+| 5a | Dashboard | ✅ Done |
+| 5b | Testbench | ✅ 17 tests passing |
 | 6 | Agent daemon | 🔲 Not started |
 
 ---
@@ -43,7 +46,33 @@
 
 ---
 
-## Phase 2b: Delivery Modes (designed, not built)
+## Phase 2b: Direct Team Messages ✅
+
+Send a message to a specific agent in your team directly from the `/pinet` command — no LLM tool call needed.
+
+```
+/pinet msg BackendDev hey, can you fix the CORS issue?
+```
+
+This writes to the team timeline (`messages.jsonl`) with the body prefixed by `@BackendDev`. The target agent sees it on their next poll/watch cycle.
+
+### How it works
+
+1. Agent runs `/pinet msg <target> <body>` in their pi session
+2. The extension appends a message to `~/.pinet/teams/<team>/messages.jsonl`
+3. Format: `{ from: "FrontendDev", body: "@BackendDev hey, can you fix the CORS issue?" }`
+4. If relay + sync daemon are active, it propagates to remote machines
+5. The target agent's team watcher picks it up on next poll
+
+### Why this matters
+
+- Agents can delegate tasks without the LLM needing to invoke `pinet_team_send` tool
+- Human operators can send messages from the pi prompt without waiting for the LLM
+- Works offline (filesystem) and online (relay sync)
+
+---
+
+## Phase 2c: Delivery Modes (designed, not built)
 
 Let agents control how intrusive incoming messages are. Three modes per team:
 
@@ -156,16 +185,50 @@ Useful for: observing the network, sending quick messages, scripting (CI pipelin
 
 ---
 
-## Phase 5: Relay (not started)
+## Phase 5: Relay ✅
 
-Cross-machine communication via WebSocket relay server. For agents on different computers.
+Cross-machine agent-to-agent communication via WebSocket relay.
 
-- Relay server (~300 lines)
-- Token auth
-- Store-and-forward for offline agents
-- NAT traversal considerations
+### What's built
 
-Big infra effort. Implement when multi-machine is actually needed.
+- **Relay server** (`relay.js`) — ~500 lines, WebSocket + HTTP
+  - Token auth with reject codes (4001 bad token, 4010 name taken, 4015 no agent name)
+  - Team membership tracking, per-team agent limits
+  - Agent online/offline broadcasts to all connected peers
+  - Same-machine reconnect (4002 — old connection kicked)
+  - Dashboard HTML + `/api/stats` JSON endpoint
+
+- **Sync daemon** (`sync.js`) — polling-based filesystem ↔ relay bridge
+  - 2s polling for reliable cross-platform change detection
+  - `PINET_AGENT_NAME` env var for per-agent identity on shared machines
+  - Echo fix: `msg.from === config.machine` guard prevents loops
+  - Auto-started by `/pinet` login when `relay.json` exists
+
+- **Deployment**
+  - Relay on lubu: `wss://neusiedl.duckdns.org:8001/pinet/`
+  - Systemd service (`pinet-relay.service`) on lubu (port 7654)
+  - Nginx proxy: `/pinet/` → WebSocket, `/pinet/dashboard/` → HTTP
+  - Dashboard: `https://neusiedl.duckdns.org:8001/pinet/dashboard/`
+
+- **Validation**
+  - Cross-machine: mac ↔ lubu ↔ pi5 (3 machines, 3 agents)
+  - Agent task delegation: FrontendDev tasked BackendDev to create file via team chat
+  - Rate limiting: 5s gap, 10 msgs/min per team (in `tools.ts`)
+  - Testbench: 17 tests passing (filesystem + relay on localhost)
+
+### Architecture
+
+```
+Machine A (mac)                    Machine B (lubuntu)
+┌──────────────┐                   ┌──────────────┐
+│ pi agent     │                   │ pi agent     │
+│  └─ sync.js ─┼─── WebSocket ────┼─┤            │
+│     ~/.pinet │                   │  ~/.pinet    │
+└──────────────┘                   └──────────────┘
+                                          │
+                                    relay.js :7654
+                                    dashboard :8081
+```
 
 ---
 

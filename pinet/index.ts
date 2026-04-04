@@ -17,7 +17,7 @@ import * as child_process from "node:child_process";
 import * as path from "node:path";
 import {
   pinetPath, exists, readFile, isProcessAlive,
-  readAllPresence, readJsonl, readTeamMessages,
+  readAllPresence, readJsonl, readJson, appendJsonl, readTeamMessages,
   writePresence, writeIdentity, writeBinding, readBinding,
   generateName, joinTeam,
 } from "./store";
@@ -246,6 +246,52 @@ function stopSyncDaemon() {
   }
 }
 
+function doMsg(args: string, ctx: any) {
+  if (!myName) {
+    ctx.ui?.notify?.("Not logged in. Use /pinet <name>@<team> first.", "warning");
+    return;
+  }
+  if (!args) {
+    ctx.ui?.notify?("Usage: /pinet msg <agent> <message>", "warning");
+    return;
+  }
+
+  const spaceIdx = args.indexOf(" ");
+  if (spaceIdx === -1) {
+    ctx.ui?.notify?("Usage: /pinet msg <agent> <message>", "warning");
+    return;
+  }
+
+  const target = args.slice(0, spaceIdx).trim();
+  const body = args.slice(spaceIdx + 1).trim();
+
+  if (!target || !body) {
+    ctx.ui?.notify?("Usage: /pinet msg <agent> <message>", "warning");
+    return;
+  }
+
+  // Find a shared team with this agent
+  const team = myTeams.find(t => {
+    const meta = readJson(pinetPath("teams", t, "meta.json")) as any;
+    return meta?.members?.includes(target);
+  });
+
+  if (!team) {
+    ctx.ui?.notify?.(`No shared team with "${target}". Both must be in the same team.`, "warning");
+    return;
+  }
+
+  const msg = {
+    id: crypto.randomUUID(),
+    from: myName,
+    body: `@${target} ${body}`,
+    ts: new Date().toISOString(),
+  };
+
+  appendJsonl(pinetPath("teams", team, "messages.jsonl"), msg);
+  ctx.ui?.notify?.(`→ #${team} @${target}: ${body}`, "info");
+}
+
 // =============================================================================
 // Extension entry point
 // =============================================================================
@@ -259,6 +305,9 @@ export default function (pi: ExtensionAPI) {
 
       // ── Logout ──────────────────────────────────
       if (arg === "off") return doLogout(ctx);
+
+      // ── Send message to team member ────────────
+      if (arg.startsWith("msg ")) return doMsg(arg.slice(4).trim(), ctx);
 
       // ── Force override ───────────────────────────
       const force = arg.startsWith("--force");
