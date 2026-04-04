@@ -29,6 +29,7 @@ const POLL_MS = 2000;
 
 // Track line counts per file to detect new lines
 let fileLineCounts = new Map();
+let snapshotFiles = new Set();
 
 // Timestamp of last remote write per file (to skip syncing our own writes)
 let remoteWriteTime = new Map();
@@ -158,6 +159,7 @@ function reconnect() {
 function onConnected() {
   // Snapshot all current file line counts
   const files = findAllFiles(PINET_DIR);
+  snapshotFiles = new Set(files);
   for (const f of files) {
     fileLineCounts.set(f, lineCount(f));
   }
@@ -190,7 +192,10 @@ function poll() {
     if (Date.now() - lastRemote < 3000) continue;
 
     const currentLines = lineCount(filePath);
-    const previousCount = fileLineCounts.get(filePath) ?? currentLines;
+    // New files (not in snapshot) start at 0 so we sync all their lines
+    const previousCount = fileLineCounts.has(filePath)
+      ? fileLineCounts.get(filePath)
+      : (snapshotFiles.has(filePath) ? currentLines : 0);
 
     if (currentLines > previousCount) {
       // New lines found!
