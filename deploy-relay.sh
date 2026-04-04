@@ -4,7 +4,7 @@
 
 set -e
 
-REMOTE_HOST="${1:-lubuntu}"
+REMOTE_HOST="${1:-lubu}"
 REMOTE_USER="${2:-woodmastr}"
 REMOTE_DIR="/home/$REMOTE_USER/code/pinet"
 
