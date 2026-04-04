@@ -80,7 +80,7 @@ export function registerPersonalTools(pi: ExtensionAPI) {
         timestamp: new Date().toISOString(),
       } satisfies PersonalMessage);
 
-      return textReply(`send ${myName}->${to}: ${message}`);
+      return textReply(`send to ${myName}->${to}: ${message}`);
     },
   });
 
@@ -104,7 +104,7 @@ export function registerPersonalTools(pi: ExtensionAPI) {
 
       return textReply(
         messages
-          .map((m) => `receive ${m.from}->${myName}: ${m.body}`)
+          .map((m) => `receive from ${m.from}->${myName}: ${m.body}`)
           .join("\n")
       );
     },
@@ -174,7 +174,7 @@ export function registerTeamTools(pi: ExtensionAPI) {
         timestamp: new Date().toISOString(),
       } satisfies TeamMessage);
 
-      return textReply(`send ${myName}@${team}: ${message}`);
+      return textReply(`send to ${myName}@${team}: ${message}`);
     },
   });
 
@@ -200,7 +200,7 @@ export function registerTeamTools(pi: ExtensionAPI) {
 
       return textReply(
         messages
-          .map((m) => `receive ${m.from}@${team}: ${m.body}`)
+          .map((m) => `receive from ${m.from}@${team}: ${m.body}`)
           .join("\n")
       );
     },

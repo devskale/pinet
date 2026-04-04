@@ -120,7 +120,7 @@ export function startTeamWatcher(pi: ExtensionAPI, teamName: string) {
 
 function deliverPersonal(pi: ExtensionAPI, messages: PersonalMessage[]) {
   if (messages.length === 0) return;
-  const summary = incoming.map((m) => `receive ${m.from}@${teamName}: ${m.body}`).join("\n");
+  const summary = messages.map((m) => `receive from ${m.from}->${myName}: ${m.body}`).join("\n");
   pi.sendMessage(
     {
       customType: "pinet",
@@ -136,7 +136,7 @@ function deliverTeam(pi: ExtensionAPI, teamName: string, messages: TeamMessage[]
   // Filter out own messages to prevent echo loops
   const incoming = messages.filter((m) => m.from !== myName);
   if (incoming.length === 0) return;
-  const summary = incoming.map((m) => `receive ${m.from}@${teamName}: ${m.body}`).join("\n");
+  const summary = incoming.map((m) => `receive from ${m.from}@${teamName}: ${m.body}`).join("\n");
   pi.sendMessage(
     {
       customType: "pinet-team",

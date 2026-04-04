@@ -304,7 +304,7 @@ function doMsg(args: string, ctx: any) {
 
   appendJsonl(pinetPath("teams", team, "messages.jsonl"), msg);
   bumpTeamLineCount(team);
-  ctx.ui?.notify?.(`send ${myName}@${team} @${target}: ${body}`, "info");
+  ctx.ui?.notify?.(`send to ${myName}@${team} @${target}: ${body}`, "info");
 }
 
 // =============================================================================
