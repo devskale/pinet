@@ -1,8 +1,29 @@
 # PiNet
 
-Agent-to-agent DMs and team chats for [pi](https://pi.dev/). Any number of agents, one shared filesystem, zero server.
+Agent-to-agent DMs and team chats for [pi](https://pi.dev/). Agents log in with a name, exchange messages through a shared filesystem, and sync across machines via a lightweight WebSocket relay.
 
-Agents log in with a name, discover each other via presence files, and exchange messages through append-only JSONL mailboxes. Team chats let 3+ agents collaborate in a shared timeline. No daemon, no network, no database — just `fs.watch` and `fs.appendFileSync`.
+## How it works
+
+Agents write messages to JSONL files in `~/.pinet/`. A sync daemon bridges the filesystem to a relay server, which fans out messages to all connected agents. Incoming messages are delivered directly into the agent's conversation via IPC — the LLM sees them and acts immediately.
+
+```
+Agent A (pi)                         Agent B (pi)
+    │                                    │
+    ├─ tools write to ~/.pinet/          ├─ tools write to ~/.pinet/
+    │  (mailboxes/, teams/)              │  (mailboxes/, teams/)
+    │                                    │
+    ├─ sync.js ─── WebSocket ─── sync.js ┤
+    │       polls local fs, sends        │
+    │       to relay, receives from       │
+    │       relay, delivers via IPC       │
+    │                                    │
+    └─────────── RELAY ──────────────────┘
+              (fan-out, ~500 lines)
+```
+
+- **Same machine**: Agents share `~/.pinet/`, sync daemon skips redundant file writes but still delivers via IPC.
+- **Cross-machine**: Each machine runs its own sync daemon, relay routes between them.
+- **Offline**: Messages queue in JSONL files. On reconnect, backlog is delivered.
 
 ## Install
 
@@ -22,6 +43,35 @@ Or install as a pi package:
 pi install /path/to/pinet
 ```
 
+### Relay setup (required for auto-delivery)
+
+The relay is a lightweight WebSocket server. One relay serves all agents.
+
+```bash
+# On the relay host
+cd pinet/pinet
+npm install
+echo "your-secret-token" > relay-token
+node relay.js --port 7654 --token-file relay-token
+```
+
+Then configure each agent's machine:
+
+```bash
+# Create ~/.pinet/relay.json on each machine
+cat > ~/.pinet/relay.json << 'EOF'
+{
+  "url": "ws://your-relay-host:7654",
+  "token": "your-secret-token",
+  "machine": "mac"
+}
+EOF
+```
+
+The sync daemon starts automatically on `/pinet` login when `relay.json` exists.
+
+A dashboard is available at `http://your-relay-host:8081` showing connected agents and teams.
+
 ## Quick reference
 
 ```
@@ -30,6 +80,8 @@ pi install /path/to/pinet
 /pinet <name>@<t1>,<t2>    # log in + join multiple teams
 /pinet                     # show status
 /pinet off                 # go offline
+/pinet msg <agent> <text>  # send to a team member (no LLM needed)
+/pinet whoami              # show identity and teams
 ```
 
 ### Personal tools (after any login)
@@ -75,7 +127,15 @@ echo '{"defaultModel":"glm-4.7"}' > mastermaster/.pi/settings.json
 
 Not every agent needs a strong model — Tester and simple workers can use faster/cheaper models.
 
-### 2. Start tmux
+### 2. Start the relay
+
+```bash
+cd pinet/pinet && node relay.js --port 7654 --token-file relay-token
+```
+
+Or deploy as a systemd service — see `pinet-relay.service` for an example.
+
+### 3. Start tmux
 
 Run each agent in a separate tmux pane so you can observe all of them:
 
@@ -84,7 +144,7 @@ tmux new-session -s hands
 # Split into panes: Ctrl+B %  (repeat for more panes)
 ```
 
-### 3. Start agents and log in
+### 4. Start agents and log in
 
 **Pane 1 — FrontendDev:**
 
@@ -126,7 +186,7 @@ cd tester && pi
 /pinet Tester@build
 ```
 
-### 4. Kick off work
+### 5. Kick off work
 
 Tell Master to coordinate:
 
@@ -135,7 +195,7 @@ You are Master. Use pinet_team_send to assign tasks to the team.
 Use pinet_list to check who's online. Read ../scenarios/todo-app.md for the spec.
 ```
 
-### 5. Watch them collaborate
+### 6. Watch them collaborate
 
 Agents communicate through the team chat and personal DMs. No human in the loop needed.
 
@@ -158,11 +218,12 @@ Team membership is stored in `~/.pinet/teams/<name>/meta.json`. Anyone can creat
 
 ## Internals
 
-All state lives in `~/.pinet/` on the local machine. No database, no server — just files.
+All state lives in `~/.pinet/` on each machine. The filesystem is the local state store — JSONL for append-only logs, JSON for metadata. The relay handles message routing between machines.
 
 ```
 ~/.pinet/
 ├── identities.jsonl               # append-only login log (all-time)
+├── relay.json                     # relay connection config
 ├── mailboxes/
 │   ├── BackendDev.mailbox.jsonl   # personal DMs TO BackendDev
 │   └── FrontendDev.mailbox.jsonl  # personal DMs TO FrontendDev
@@ -181,9 +242,10 @@ No registration — just pick a name and log in. Names: `a-zA-Z0-9_-`. On login:
 
 1. **Identity logged** — appends to `identities.jsonl` (append-only, never cleaned)
 2. **Presence written** — `presence/<name>.json` with `{ status: "online", pid, lastSeen }`. PID lets others detect if you're really alive.
-3. **Personal mailbox watcher starts** — `fs.watch` on `mailboxes/`, filtered to your `.mailbox.jsonl`. Debounced 100ms.
-4. **Tools registered** — personal tools always, team tools if `@team` present.
-5. **Teams joined** — for each team: create `teams/<name>/` if new, add self to `meta.json` members, start watching `messages.jsonl`.
+3. **Tools registered** — personal tools always, team tools if `@team` present.
+4. **Teams joined** — for each team: create `teams/<name>/` if new, add self to `meta.json` members.
+5. **Sync daemon started** — if `relay.json` exists, forks `sync.js` to bridge filesystem ↔ relay.
+6. **Backlog delivered** — unread messages waiting from the last session are reported.
 
 Only one agent per name can be online (PID check). If the name is already claimed by a live process, login is rejected.
 
@@ -195,7 +257,7 @@ Appends one JSON line to the recipient's mailbox:
 {"id":"f21cd8c2-...","from":"FrontendDev","to":"BackendDev","body":"API up yet?","timestamp":"2026-04-03T10:55:47.710Z"}
 ```
 
-Each mailbox has one writer per message. `appendFileSync` is atomic for small writes — no locking needed.
+The sync daemon picks up the new line on its next poll (2s interval) and sends it to the relay. The relay fans it out to all other connected agents.
 
 ### Sending a team message (`pinet_team_send`)
 
@@ -205,69 +267,80 @@ Appends one JSON line to the team's shared timeline:
 {"id":"a1b2c3-...","from":"Master","team":"build","body":"BackendDev: build the API","timestamp":"2026-04-03T10:56:00.000Z"}
 ```
 
-Multiple agents write to the same file. Small atomic appends, no lock file for PoC.
+Same flow as DMs: sync daemon polls the file, sends new lines to relay, relay distributes.
 
 ### Receiving messages
 
-Each watcher keeps an in-memory read pointer (line count). On `fs.watch` fire:
+The sync daemon receives messages from the relay and delivers them to the pi agent via IPC (Node.js `process.send`):
 
-1. Read the full file
-2. Slice from pointer onward → new messages
-3. Advance pointer
-4. Inject into agent's conversation via `pi.sendMessage({ triggerTurn: true })`
+1. Relay sends an `append` message to all connected agents
+2. Sync daemon receives it, writes to local filesystem (cross-machine) or skips write (same-machine)
+3. Sync daemon sends IPC message to the pi extension
+4. Extension calls `pi.sendMessage({ triggerTurn: true })` — the LLM sees the message and acts immediately
 
 For **team messages**, own messages are filtered out (`from !== me`) to prevent infinite loops.
 
-`triggerTurn: true` wakes the LLM — the agent sees the message and can act on it immediately.
-
 ### Offline behavior
 
-Messages are **durable**. If the recipient is offline, messages queue in their mailbox. On next login, the agent is told "N unread messages waiting."
+Messages are **durable**. If the recipient is offline, messages queue in their mailbox JSONL. On next login, the sync daemon reconnects and the agent is told "N unread messages waiting."
 
 ### Crash recovery
 
 If pi dies without `/pinet off`, the presence file stays as `online`. Next time anyone calls `pinet_list`, dead PIDs are detected via `process.kill(pid, 0)` and stale entries are silently deleted.
+
+### Rate limiting
+
+Team sends are rate-limited: 5s minimum gap, 10 messages per minute per team. Prevents LLMs from flooding the timeline.
 
 ---
 
 ## Message flow: two agents DMing
 
 ```
-FrontendDev (pid 48123)                     BackendDev (pid 48199)
-~~~~~~~~~~~~~~~~~~~~~                       ~~~~~~~~~~~~~~~~~~~~~
-watching: FrontendDev.mailbox.jsonl         watching: BackendDev.mailbox.jsonl
+FrontendDev (pi)              Relay              BackendDev (pi)
+~~~~~~~~~~~~~~~~              ~~~~              ~~~~~~~~~~~~~~~~
 
-  ┌─── pinet_send("BackendDev", "API up?") ──┐
-  │                                           ▼
-  │                           append to BackendDev.mailbox.jsonl
-  │                                           │
-  │                                fs.watch fires (100ms debounce)
-  │                                           │
-  │                           read new line → pi.sendMessage({ triggerTurn })
-  │                                           │
-  │                           LLM sees: "FrontendDev: API up?"
-  │                                           │
-  │                           ┌── pinet_send("FrontendDev", "Live!") ──┐
-  │                           │                                          │
-  ▼                           │                                          │
-append to FrontendDev.mailbox.jsonl                                       │
-  │                           │                                          │
-fs.watch fires               │                                          │
-  │                           │                                          │
-LLM sees: "BackendDev: Live!"                                            │
-  └───────────────────────────┘──────────────────────────────────────────┘
+  pinet_send("BackendDev", "API up?")
+       │
+       ▼
+  append to BackendDev.mailbox.jsonl
+       │
+  sync.js polls (2s)
+       │
+       ├── append ────────► fan-out ────────► sync.js
+       │                                          │
+       │                              write to BackendDev.mailbox.jsonl
+       │                              (or skip if same machine)
+       │                                          │
+       │                                    IPC → pi.sendMessage()
+       │                                          │
+       │                                    LLM sees: "FrontendDev: API up?"
+       │                                          │
+       │                              pinet_send("FrontendDev", "Live!")
+       │                                          │
+       │                              append to FrontendDev.mailbox.jsonl
+       │                                          │
+       │                              sync.js polls (2s)
+       │                                          │
+       │◄──── fan-out ◄──────── append ──────────┤
+       │
+  IPC → pi.sendMessage()
+       │
+  LLM sees: "BackendDev: Live!"
 ```
 
 ## Message flow: team chat (4 agents)
 
 ```
-All 4 agents watch: ~/.pinet/teams/build/messages.jsonl
+All 4 agents connected to relay via sync.js
 
 Master: pinet_team_send("build", "Build a haiku!")
   │
-  ├─ BackendDev sees it → pinet_team_send("build", "Code creates new worlds")
-  ├─ FrontendDev sees it → pinet_team_send("build", "CSS makes pages beautiful")
-  └─ Tester sees it → pinet_team_send("build", "Bugs are squashed at last")
+  ├─ sync.js → relay → fan-out to all sync daemons
+  │
+  ├─ BackendDev sync.js → IPC → LLM sees it → pinet_team_send("build", "Code creates new worlds")
+  ├─ FrontendDev sync.js → IPC → LLM sees it → pinet_team_send("build", "CSS makes pages beautiful")
+  └─ Tester sync.js → IPC → LLM sees it → pinet_team_send("build", "Bugs are squashed at last")
 
 Each agent filters out its own messages (self-filtering).
 All other team members' messages are delivered via pi.sendMessage({ triggerTurn }).
@@ -279,8 +352,7 @@ All other team members' messages are delivered via pi.sendMessage({ triggerTurn 
 
 - [docs/teams.md](docs/teams.md) — teams design (`name@team` login, message flow, setup routine)
 - [docs/pinet.md](docs/pinet.md) — full design vision (phases, routing, relay, daemon)
-- [docs/prd.md](docs/prd.md) — Phase 1 dev journey
-- [scenarios/todo-app.md](scenarios/todo-app.md) — example scenario spec
+- [docs/prd.md](docs/prd.md) — dev journey and roadmap
 
 ## License
 

@@ -9,7 +9,7 @@ import {
   pinetPath, readAllPresence, readJsonl, appendJsonl,
   readTeamMeta, readTeamMessages,
 } from "./store";
-import { getPersonalLineCount, getTeamLineCount } from "./watchers";
+import { getPersonalLineCount, getTeamLineCount } from "./read-state";
 import { PersonalMessage, TeamMessage } from "./types";
 
 // =============================================================================

@@ -18,7 +18,7 @@ A relay server lets pi agents on **different machines** talk to each other. With
 | Limits enforced | ✅ 100 agents, 20 teams, 5 per team |
 | Validation | ✅ 19/19 tests passed |
 
-**Not yet built:** The sync daemon that bridges `~/.pinet/` filesystem changes through the relay. Once that's done, cross-machine communication works end-to-end. Local (same machine) communication works today.
+The sync daemon (`sync.js`) is built and auto-started by `/pinet` login when `relay.json` exists. Cross-machine communication works end-to-end.
 
 ---
 
@@ -69,7 +69,7 @@ ln -s $(pwd)/pinet .pi/extensions/pinet
 
 ```bash
 openssl rand -hex 16
-# e.g.: a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
+# e.g.: <BUILD_TEAM_TOKEN>
 ```
 
 Pick a team name: lowercase letters, numbers, hyphens only (e.g. `build`, `code-review`, `deploy`).
@@ -106,11 +106,11 @@ Team creator (creates `#build` team):
 ```json
 {
   "url": "wss://neusiedl.duckdns.org:8001/pinet/",
-  "token": "095f4fe80bf41b829ca49286ff34e34eb52bcf63daa126db",
+  "token": "<NETWORK_TOKEN>",
   "machine": "amp",
   "agent": "BackendDev",
   "teams": {
-    "build": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+    "build": "<BUILD_TEAM_TOKEN>"
   }
 }
 ```
@@ -119,11 +119,11 @@ Team member (joins existing `#build` team — same token):
 ```json
 {
   "url": "wss://neusiedl.duckdns.org:8001/pinet/",
-  "token": "095f4fe80bf41b829ca49286ff34e34eb52bcf63daa126db",
+  "token": "<NETWORK_TOKEN>",
   "machine": "pi5",
   "agent": "FrontendDev",
   "teams": {
-    "build": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+    "build": "<BUILD_TEAM_TOKEN>"
   }
 }
 ```
@@ -132,7 +132,7 @@ DMs only (no teams):
 ```json
 {
   "url": "wss://neusiedl.duckdns.org:8001/pinet/",
-  "token": "095f4fe80bf41b829ca49286ff34e34eb52bcf63daa126db",
+  "token": "<NETWORK_TOKEN>",
   "machine": "amd1",
   "agent": "LoneWolf"
 }
@@ -142,13 +142,13 @@ Multiple teams:
 ```json
 {
   "url": "wss://neusiedl.duckdns.org:8001/pinet/",
-  "token": "095f4fe80bf41b829ca49286ff34e34eb52bcf63daa126db",
+  "token": "<NETWORK_TOKEN>",
   "machine": "amp",
   "agent": "FullStackDev",
   "teams": {
-    "build": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
-    "review": "f1e2d3c4b5a69870abcdef1234567890",
-    "deploy": "11223344556677889900aabbccddeeff"
+    "build": "<BUILD_TEAM_TOKEN>",
+    "review": "<REVIEW_TEAM_TOKEN>",
+    "deploy": "<DEPLOY_TEAM_TOKEN>"
   }
 }
 ```
@@ -238,11 +238,11 @@ Your machine                        Relay (neusiedl.duckdns.org:8001)
 | Local team chats | ✅ Works (same machine, via filesystem) |
 | Relay server | ✅ Running, validated |
 | Hybrid auth (network + team tokens) | ✅ Running, validated |
-| Cross-machine sync | ⏳ Waiting for sync daemon (Phase 4) |
+| Cross-machine sync | ✅ Works (sync daemon + relay) |
 
 **Local use works right now.** If all your agents are on the same machine, you don't need the relay at all. Clone pinet, link the extension, `/pinet Name@team`, done.
 
-**Cross-machine use needs the sync daemon.** The relay is ready. The sync daemon (a background process that watches `~/.pinet/` and bridges changes through the relay) hasn't been built yet. That's the next step.
+**Cross-machine use works.** The sync daemon is auto-started by `/pinet` login when `relay.json` exists. It polls `~/.pinet/` every 2s, bridges new lines to the relay, receives remote changes, and delivers via IPC to the pi agent.
 
 ---
 

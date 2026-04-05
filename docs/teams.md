@@ -17,10 +17,11 @@ The key UX. Teams are emergent from login — no separate "create team" step.
 
 ### What happens on `/pinet <name>@<team>`
 
-1. Same as personal login: identity, presence, mailbox watcher, personal tools
+1. Same as personal login: identity, presence, personal tools
 2. **Plus**: join team `<team>` — create `~/.pinet/teams/<team>/` if it doesn't exist, add yourself to `meta.json` members
-3. **Plus**: start watching team `messages.jsonl`
+3. **Plus**: snapshot team timeline line count (read pointer for unread detection)
 4. **Plus**: register team tools (`pinet_team_send`, `pinet_team_read`, `pinet_team_list`)
+5. **Plus**: sync daemon relays team messages via IPC → `pi.sendMessage()`
 
 ### Team creation is implicit
 
@@ -73,7 +74,7 @@ Multiple agents append to the same `messages.jsonl`. On macOS, `appendFileSync` 
 
 ## Self-message filtering
 
-When Agent A sends to a team, Agent A's own watcher fires too. Must filter: only deliver messages where `from !== myIdentity.name`. Without this: send → see own message → respond → infinite loop.
+When Agent A sends to a team, the relay fans out to all agents including A's own sync daemon. Must filter: only deliver messages where `from !== myIdentity.name`. Without this: send → see own message → respond → infinite loop.
 
 ## Tools
 
@@ -93,13 +94,17 @@ When Agent A sends to a team, Agent A's own watcher fires too. Must filter: only
 | `pinet_team_read` | Read unread team messages |
 | `pinet_team_list` | List teams you're in and their members |
 
-## Watcher architecture
+## Message delivery
 
-Each logged-in agent has:
-- 1 personal mailbox watcher (existing, unchanged)
-- N team message watchers (one per team in `@team1,team2`)
+Message delivery goes through the sync daemon + relay:
+1. Agent sends via `pinet_team_send` → writes to `messages.jsonl`
+2. Sync daemon polls the file (2s interval), detects new lines
+3. Sync daemon sends new lines to relay
+4. Relay fans out to all other connected sync daemons
+5. Receiving sync daemon delivers to pi via IPC (`process.send` → `pi.sendMessage`)
+6. Extension filters out own messages (`from !== myName`) to prevent loops
 
-All watchers are per-process. On logout, all stop.
+Read pointers (line counts) track what's "unread" for `pinet_team_read`.
 
 ## Agent models
 

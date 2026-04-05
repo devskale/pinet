@@ -152,7 +152,7 @@ Routes are checked **after** the message is written, by the sending agent:
 4. For each route where source matches:
    - Mirror: copy message to destination
    - Conditional: check conditions, if matched copy to destination
-5. Destination watchers fire naturally — no special delivery needed
+5. Destination sync daemons deliver naturally — no special delivery needed
 
 This means routes are evaluated by the sender, not the receiver. Keeps it simple — no background process needed.
 

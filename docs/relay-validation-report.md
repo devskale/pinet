@@ -121,7 +121,7 @@ On any other machine, create `~/.pinet/relay.json`:
 ```json
 {
   "url": "wss://neusiedl.duckdns.org:8001/pinet/",
-  "token": "095f4fe80bf41b829ca49286ff34e34eb52bcf63daa126db",
+  "token": "<NETWORK_TOKEN>",
   "machine": "machine-name"
 }
 ```
@@ -147,7 +147,7 @@ sudo systemctl reload nginx                # reload config
 node -e "
   const WebSocket = require('ws');
   const ws = new WebSocket('wss://neusiedl.duckdns.org:8001/pinet/', {rejectUnauthorized:false});
-  ws.on('open', () => ws.send(JSON.stringify({type:'auth',token:'095f4fe80bf41b829ca49286ff34e34eb52bcf63daa126db',machine:'test'})));
+  ws.on('open', () => ws.send(JSON.stringify({type:'auth',token:'<NETWORK_TOKEN>',machine:'test'})));
   ws.on('message', d => { console.log(JSON.parse(d)); if(JSON.parse(d).type==='welcome'){ws.close();process.exit(0)} });
   ws.on('error', e => { console.error(e.message); process.exit(1); });
   setTimeout(()=>process.exit(1),5000);

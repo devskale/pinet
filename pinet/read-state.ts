@@ -1,7 +1,7 @@
 /**
- * PiNet — Line count tracking for team timelines.
+ * PiNet — Read pointers (line counts) for unread detection.
  *
- * NO file watchers. All message delivery goes through the relay
+ * No file watchers. All message delivery goes through the relay
  * (sync daemon → IPC → pi.sendMessage).
  *
  * This module only tracks read pointers so tools know what's "unread".

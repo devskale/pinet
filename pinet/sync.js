@@ -4,7 +4,6 @@
  *
  * Bridges ~/.pinet/ filesystem ↔ WebSocket relay.
  * Uses polling (every 2s) for reliable change detection.
- * fs.watch as fast-path bonus.
  */
 
 import * as fs from "node:fs";

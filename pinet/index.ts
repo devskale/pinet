@@ -27,7 +27,7 @@ import {
   startPersonalWatcher, startTeamWatcher,
   resetWatchers, getPersonalLineCount, getTeamLineCount,
   bumpTeamLineCount, setWatcherIdentity,
-} from "./watchers";
+} from "./read-state";
 import {
   registerPersonalTools, registerTeamTools,
   setToolIdentity, resetToolIdentity,

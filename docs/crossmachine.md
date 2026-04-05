@@ -1,5 +1,7 @@
 # PiNet Cross-Machine — Design
 
+> **Note:** This was the original design spec for the relay. The relay has since been built and deployed. This doc is kept for design rationale — see `relay.js` and `sync.js` for the actual implementation, and `prd.md` for current architecture.
+
 ## The problem
 
 PiNet agents communicate by writing to each other's files. On one machine, `~/.pinet/` is shared. Across machines, it isn't. You need a transport that makes remote agents' mailboxes accessible.
