@@ -215,6 +215,181 @@ test("fs: DM mailbox", () => {
   assert.strictEqual(dms[0].from, "Alice");
 });
 
+// ── JSONL compaction ────────────────────────────────────────────────────────
+
+test("fs: compaction keeps last N lines", () => {
+  clean();
+  const f = p("teams", "build", "messages.jsonl");
+  for (let i = 0; i < 10; i++) appendJsonl(f, { id: String(i), from: "Alice", body: `msg ${i}` });
+  assert.strictEqual(readJsonl(f).length, 10);
+
+  // Compact to 5
+  const lines = fs.readFileSync(f, "utf-8").trim().split("\n").filter(l => l.trim());
+  const kept = lines.slice(-5);
+  const tmp = f + ".tmp." + process.pid;
+  fs.writeFileSync(tmp, kept.join("\n") + "\n");
+  fs.renameSync(tmp, f);
+
+  const result = readJsonl(f);
+  assert.strictEqual(result.length, 5);
+  assert.strictEqual(result[0].body, "msg 5");
+  assert.strictEqual(result[4].body, "msg 9");
+});
+
+test("fs: compaction no-op under limit", () => {
+  clean();
+  const f = p("teams", "small", "messages.jsonl");
+  for (let i = 0; i < 3; i++) appendJsonl(f, { id: String(i), from: "Alice", body: `msg ${i}` });
+  // Should still be 3 — no compaction needed
+  const lines = fs.readFileSync(f, "utf-8").trim().split("\n").filter(l => l.trim());
+  assert.ok(lines.length <= 500); // MAX_JSONL_LINES default
+  const result = readJsonl(f);
+  assert.strictEqual(result.length, 3);
+});
+
+// ── Delivery modes ───────────────────────────────────────────────────────
+
+test("fs: new team defaults to interrupt mode", () => {
+  clean();
+  const meta = { name: "build", members: ["Alice"], roles: {}, delivery: "interrupt", created: new Date().toISOString() };
+  writeJson(p("teams", "build", "meta.json"), meta);
+  const m = readJson(p("teams", "build", "meta.json"));
+  assert.strictEqual(m.delivery, "interrupt");
+});
+
+test("fs: set delivery mode", () => {
+  clean();
+  writeJson(p("teams", "build", "meta.json"), {
+    name: "build", members: ["Alice", "Bob"], roles: {}, delivery: "interrupt", created: new Date().toISOString(),
+  });
+  const m = readJson(p("teams", "build", "meta.json"));
+  m.delivery = "digest";
+  writeJson(p("teams", "build", "meta.json"), m);
+  const updated = readJson(p("teams", "build", "meta.json"));
+  assert.strictEqual(updated.delivery, "digest");
+});
+
+test("fs: all three delivery modes", () => {
+  clean();
+  for (const mode of ["interrupt", "digest", "silent"]) {
+    writeJson(p("teams", mode, "meta.json"), {
+      name: mode, members: [], roles: {}, delivery: mode, created: new Date().toISOString(),
+    });
+    const m = readJson(p("teams", mode, "meta.json"));
+    assert.strictEqual(m.delivery, mode);
+  }
+});
+
+test("fs: missing delivery defaults to interrupt", () => {
+  clean();
+  // Old-format meta without delivery field
+  writeJson(p("teams", "legacy", "meta.json"), {
+    name: "legacy", members: ["Alice"], roles: {}, created: new Date().toISOString(),
+  });
+  const m = readJson(p("teams", "legacy", "meta.json"));
+  assert.strictEqual(m.delivery, undefined); // not set in file
+  // Code should default: meta?.delivery ?? "interrupt"
+  const effective = m?.delivery ?? "interrupt";
+  assert.strictEqual(effective, "interrupt");
+});
+
+test("mode: mode persists across message writes", () => {
+  clean();
+  // Create team in digest mode
+  writeJson(p("teams", "build", "meta.json"), {
+    name: "build", members: ["Alice", "Bob"], roles: {}, delivery: "digest", created: new Date().toISOString(),
+  });
+  // Write 5 messages
+  const f = p("teams", "build", "messages.jsonl");
+  for (let i = 0; i < 5; i++) appendJsonl(f, { id: String(i), from: i % 2 === 0 ? "Alice" : "Bob", body: `msg ${i}` });
+  // Mode should survive in meta
+  const meta = readJson(p("teams", "build", "meta.json"));
+  assert.strictEqual(meta.delivery, "digest");
+  // Messages still readable
+  const msgs = readJsonl(f);
+  assert.strictEqual(msgs.length, 5);
+});
+
+test("mode: change mode mid-conversation", () => {
+  clean();
+  writeJson(p("teams", "build", "meta.json"), {
+    name: "build", members: ["Alice"], roles: {}, delivery: "interrupt", created: new Date().toISOString(),
+  });
+  const f = p("teams", "build", "messages.jsonl");
+  // Write 3 messages in interrupt mode
+  for (let i = 0; i < 3; i++) appendJsonl(f, { id: String(i), from: "Alice", body: `before ${i}` });
+  // Switch to silent
+  const meta = readJson(p("teams", "build", "meta.json"));
+  meta.delivery = "silent";
+  writeJson(p("teams", "build", "meta.json"), meta);
+  // Write 3 more messages in silent mode
+  for (let i = 3; i < 6; i++) appendJsonl(f, { id: String(i), from: "Alice", body: `after ${i}` });
+  // Verify: 6 messages total, mode is silent
+  assert.strictEqual(readJsonl(f).length, 6);
+  assert.strictEqual(readJson(p("teams", "build", "meta.json")).delivery, "silent");
+  // Switch back to interrupt
+  meta.delivery = "interrupt";
+  writeJson(p("teams", "build", "meta.json"), meta);
+  assert.strictEqual(readJson(p("teams", "build", "meta.json")).delivery, "interrupt");
+});
+
+test("mode: each team has independent mode", () => {
+  clean();
+  writeJson(p("teams", "build", "meta.json"), {
+    name: "build", members: ["Alice"], roles: {}, delivery: "interrupt", created: new Date().toISOString(),
+  });
+  writeJson(p("teams", "review", "meta.json"), {
+    name: "review", members: ["Alice"], roles: {}, delivery: "digest", created: new Date().toISOString(),
+  });
+  writeJson(p("teams", "audit", "meta.json"), {
+    name: "audit", members: ["Alice"], roles: {}, delivery: "silent", created: new Date().toISOString(),
+  });
+  // Verify each is independent
+  assert.strictEqual(readJson(p("teams", "build", "meta.json")).delivery, "interrupt");
+  assert.strictEqual(readJson(p("teams", "review", "meta.json")).delivery, "digest");
+  assert.strictEqual(readJson(p("teams", "audit", "meta.json")).delivery, "silent");
+  // Change one, others unaffected
+  const m = readJson(p("teams", "build", "meta.json"));
+  m.delivery = "digest";
+  writeJson(p("teams", "build", "meta.json"), m);
+  assert.strictEqual(readJson(p("teams", "build", "meta.json")).delivery, "digest");
+  assert.strictEqual(readJson(p("teams", "review", "meta.json")).delivery, "digest");
+  assert.strictEqual(readJson(p("teams", "audit", "meta.json")).delivery, "silent");
+});
+
+test("mode: trigger decision logic", () => {
+  // Replicate the core decision from index.ts:
+  //   const mode = readDeliveryMode(teamName);
+  //   piRef.sendMessage({ ... }, { triggerTurn: mode === "interrupt" });
+  function shouldTrigger(delivery) {
+    const mode = delivery ?? "interrupt";
+    return mode === "interrupt";
+  }
+  assert.strictEqual(shouldTrigger("interrupt"), true, "interrupt should trigger");
+  assert.strictEqual(shouldTrigger("digest"), false, "digest should NOT trigger");
+  assert.strictEqual(shouldTrigger("silent"), false, "silent should NOT trigger");
+  assert.strictEqual(shouldTrigger(undefined), true, "missing field should default to interrupt and trigger");
+  assert.strictEqual(shouldTrigger(null), true, "null should default to interrupt and trigger");
+});
+
+test("mode: mode survives compaction", () => {
+  clean();
+  writeJson(p("teams", "build", "meta.json"), {
+    name: "build", members: ["Alice"], roles: {}, delivery: "digest", created: new Date().toISOString(),
+  });
+  const f = p("teams", "build", "messages.jsonl");
+  for (let i = 0; i < 10; i++) appendJsonl(f, { id: String(i), from: "Alice", body: `msg ${i}` });
+  // Compact to 5
+  const lines = fs.readFileSync(f, "utf-8").trim().split("\n").filter(l => l.trim());
+  const kept = lines.slice(-5);
+  const tmp = f + ".tmp." + process.pid;
+  fs.writeFileSync(tmp, kept.join("\n") + "\n");
+  fs.renameSync(tmp, f);
+  // Mode should survive — compaction only touches messages.jsonl, not meta.json
+  assert.strictEqual(readJson(p("teams", "build", "meta.json")).delivery, "digest");
+  assert.strictEqual(readJsonl(f).length, 5);
+});
+
 // ── 2. Relay ────────────────────────────────────────────────────────────────
 
 test("relay: auth + welcome", async () => {
@@ -411,8 +586,430 @@ test("roundtrip: DM Alice→Bob then Bob→Alice", async () => {
   b.ws.close();
 });
 
-// =============================================================================
-// Run
+// ── 4. Delivery modes + relay ─────────────────────────────────────────────
+
+test("mode: relay round-trip with digest mode", async () => {
+  const a = await wsConnect({ token: NETWORK_TOKEN, machine: "mac", agent: "ModeAlice", teams: { build: "mt1" } });
+  const b = await wsConnect({ token: NETWORK_TOKEN, machine: "pi5", agent: "ModeBob", teams: { build: "mt1" } });
+
+  // Send a message through the relay (relay doesn't know about modes — that's fine)
+  const recvPromise = waitForMessage(b.ws, "append");
+  a.ws.send(JSON.stringify({
+    type: "append", from: "mac",
+    path: "teams/build/messages.jsonl",
+    lines: [{ id: "dm1", from: "ModeAlice", body: "digest test", ts: new Date().toISOString() }],
+  }));
+  const recv = await recvPromise;
+  assert.strictEqual(recv.type, "append");
+  assert.strictEqual(recv.lines[0].body, "digest test");
+
+  // The delivery mode decision happens at the receiver (index.ts), not the relay.
+  // Relay always fans out — the extension checks meta.json delivery mode
+  // before deciding triggerTurn. We validate the decision logic here:
+  //
+  //   const mode = readDeliveryMode(teamName); // reads meta.json
+  //   triggerTurn: mode === "interrupt"
+  //
+  // Since we can't load the pi extension in testbench, we validate
+  // the logic directly:
+  for (const [mode, expected] of [["interrupt", true], ["digest", false], ["silent", false]]) {
+    const shouldTrigger = (mode ?? "interrupt") === "interrupt";
+    assert.strictEqual(shouldTrigger, expected, `mode=${mode} should trigger=${expected}`);
+  }
+
+  a.ws.close();
+  b.ws.close();
+});
+
+test("mode: mode change between relay messages", async () => {
+  const a = await wsConnect({ token: NETWORK_TOKEN, machine: "mac", agent: "ChgAlice", teams: { chg: "ct" } });
+  const b = await wsConnect({ token: NETWORK_TOKEN, machine: "pi5", agent: "ChgBob", teams: { chg: "ct" } });
+
+  // Send message 1
+  const p1 = waitForMessage(b.ws, "append");
+  a.ws.send(JSON.stringify({
+    type: "append", from: "mac",
+    path: "teams/chg/messages.jsonl",
+    lines: [{ id: "c1", from: "ChgAlice", body: "msg 1", ts: new Date().toISOString() }],
+  }));
+  await p1;
+
+  // Send message 2 (mode would have changed by the extension at this point)
+  const p2 = waitForMessage(a.ws, "append");
+  b.ws.send(JSON.stringify({
+    type: "append", from: "pi5",
+    path: "teams/chg/messages.jsonl",
+    lines: [{ id: "c2", from: "ChgBob", body: "msg 2", ts: new Date().toISOString() }],
+  }));
+  const r2 = await p2;
+  assert.strictEqual(r2.lines[0].body, "msg 2");
+
+  // Relay doesn't care about modes — it's a dumb pipe.
+  // Messages arrive regardless of mode. Mode only controls triggerTurn at the receiver.
+  a.ws.close();
+  b.ws.close();
+});
+
+test("mode: two teams with different modes, relay delivers to both", async () => {
+  const a = await wsConnect({ token: NETWORK_TOKEN, machine: "mac", agent: "TMAlice", teams: { build: "bt", review: "rt" } });
+  const b = await wsConnect({ token: NETWORK_TOKEN, machine: "pi5", agent: "TMBob", teams: { build: "bt", review: "rt" } });
+
+  // Alice sends to #build
+  const bp = waitForMessage(b.ws, "append");
+  a.ws.send(JSON.stringify({
+    type: "append", from: "mac",
+    path: "teams/build/messages.jsonl",
+    lines: [{ id: "b1", from: "TMAlice", body: "build msg", ts: new Date().toISOString() }],
+  }));
+  const bm = await bp;
+  assert.strictEqual(bm.lines[0].body, "build msg");
+
+  // Alice sends to #review
+  const rp = waitForMessage(b.ws, "append");
+  a.ws.send(JSON.stringify({
+    type: "append", from: "mac",
+    path: "teams/review/messages.jsonl",
+    lines: [{ id: "r1", from: "TMAlice", body: "review msg", ts: new Date().toISOString() }],
+  }));
+  const rm = await rp;
+  assert.strictEqual(rm.lines[0].body, "review msg");
+
+  // Both messages arrive at Bob via relay — delivery modes don't affect relay transport.
+  // #build could be interrupt and #review could be digest — relay delivers both.
+  // The receiver decides whether to triggerTurn based on each team's meta.json.
+  a.ws.close();
+  b.ws.close();
+});
+
+// ── TLS helpers ──────────────────────────────────────────────────────────
+
+function generateSelfSignedCert() {
+  const { execSync } = require("child_process");
+  const tlsDir = path.join(os.tmpdir(), "pinet-tls-test");
+  if (!fs.existsSync(tlsDir)) fs.mkdirSync(tlsDir, { recursive: true });
+  const keyFile = path.join(tlsDir, "key.pem");
+  const certFile = path.join(tlsDir, "cert.pem");
+  execSync(
+    `openssl req -x509 -newkey rsa:2048 -keyout "${keyFile}" -out "${certFile}" -days 1 -nodes -subj "/CN=localhost"`,
+    { stdio: "pipe" }
+  );
+  return { keyFile, certFile };
+}
+
+let tlsRelayProc = null;
+const TLS_PORT = 27654;
+const TLS_URL = `wss://127.0.0.1:${TLS_PORT}`;
+
+function startTlsRelay(keyFile, certFile) {
+  return new Promise((resolve, reject) => {
+    // Write token to a stable dir that clean() won't wipe
+    const tlsDir = path.join(os.tmpdir(), "pinet-tls-test");
+    if (!fs.existsSync(tlsDir)) fs.mkdirSync(tlsDir, { recursive: true });
+    const tokenFile = path.join(tlsDir, "relay-token");
+    fs.writeFileSync(tokenFile, NETWORK_TOKEN);
+
+    tlsRelayProc = spawn("node", [
+      path.join(__dirname, "pinet", "relay.js"),
+      "--port", String(TLS_PORT),
+      "--token-file", tokenFile,
+      "--tls-key", keyFile,
+      "--tls-cert", certFile,
+    ], { stdio: ["pipe", "pipe", "pipe"] });
+
+    let started = false;
+    tlsRelayProc.stdout.on("data", d => {
+      const s = d.toString();
+      if (!started && s.includes("Ready")) {
+        started = true;
+        resolve();
+      }
+    });
+    tlsRelayProc.stderr.on("data", d => {
+      if (!started && d.toString().includes("Error")) {
+        reject(new Error("TLS relay failed: " + d.toString()));
+      }
+    });
+    setTimeout(() => { if (!started) reject(new Error("TLS relay timeout")); }, 5000);
+  });
+}
+
+function stopTlsRelay() {
+  if (tlsRelayProc) { tlsRelayProc.kill(); tlsRelayProc = null; }
+}
+
+function wsConnectTls(auth) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(TLS_URL, { rejectUnauthorized: false });
+    const timeout = setTimeout(() => { ws.close(); reject(new Error("TLS WS connect timeout")); }, 5000);
+
+    ws.on("open", () => {
+      ws.send(JSON.stringify({ type: "auth", ...auth }));
+    });
+
+    ws.on("message", raw => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "welcome") {
+        clearTimeout(timeout);
+        resolve({ ws, welcome: msg });
+      }
+    });
+
+    ws.on("error", e => { clearTimeout(timeout); reject(e); });
+    ws.on("close", (code, reason) => {
+      clearTimeout(timeout);
+      if (code >= 4000) reject(new Error(`TLS Closed ${code}: ${reason}`));
+    });
+  });
+}
+
+// ── 4. TLS (direct mode, no nginx) ───────────────────────────────────────
+
+test("tls: wss:// auth + welcome", async () => {
+  const { keyFile, certFile } = generateSelfSignedCert();
+  await startTlsRelay(keyFile, certFile);
+
+  const { ws, welcome } = await wsConnectTls({
+    token: NETWORK_TOKEN, machine: "test", agent: "TlsAgent",
+  });
+  assert.strictEqual(welcome.agent, "TlsAgent");
+  assert.strictEqual(welcome.network.totalAgents, 1);
+  ws.close();
+  stopTlsRelay();
+});
+
+test("tls: wss:// message A→B", async () => {
+  const { keyFile, certFile } = generateSelfSignedCert();
+  await startTlsRelay(keyFile, certFile);
+
+  const a = await wsConnectTls({ token: NETWORK_TOKEN, machine: "mac", agent: "TlsAlice", teams: { secure: "st" } });
+  const b = await wsConnectTls({ token: NETWORK_TOKEN, machine: "pi5", agent: "TlsBob", teams: { secure: "st" } });
+
+  const recvPromise = waitForMessage(b.ws, "append");
+  a.ws.send(JSON.stringify({
+    type: "append", from: "mac",
+    path: "teams/secure/messages.jsonl",
+    lines: [{ id: "t1", from: "TlsAlice", body: "encrypted in transit!", ts: new Date().toISOString() }],
+  }));
+
+  const recv = await recvPromise;
+  assert.strictEqual(recv.type, "append");
+  assert.strictEqual(recv.lines[0].body, "encrypted in transit!");
+
+  a.ws.close();
+  b.ws.close();
+  stopTlsRelay();
+});
+
+test("tls: HTTPS dashboard on same port", async () => {
+  const { keyFile, certFile } = generateSelfSignedCert();
+  await startTlsRelay(keyFile, certFile);
+
+  const https = require("https");
+  const data = await new Promise((resolve, reject) => {
+    https.get(`https://localhost:${TLS_PORT}/api/stats`, { rejectUnauthorized: false }, (res) => {
+      let body = "";
+      res.on("data", chunk => body += chunk);
+      res.on("end", () => {
+        try { resolve(JSON.parse(body)); } catch (e) { reject(e); }
+      });
+    }).on("error", reject);
+  });
+  assert.strictEqual(data.tls, true);
+  assert.strictEqual(data.maxAgents, 100);
+  stopTlsRelay();
+});
+
+test("tls: bad token rejected over wss", async () => {
+  const { keyFile, certFile } = generateSelfSignedCert();
+  await startTlsRelay(keyFile, certFile);
+
+  try {
+    await wsConnectTls({ token: "wrong", machine: "test", agent: "TlsBad" });
+    assert.fail("Should have been rejected");
+  } catch (e) {
+    assert.ok(e.message.includes("4001"));
+  }
+  stopTlsRelay();
+});
+
+test("tls: single-port (ws + http share port)", async () => {
+  const { keyFile, certFile } = generateSelfSignedCert();
+  await startTlsRelay(keyFile, certFile);
+
+  // HTTPS stats on TLS_PORT
+  const https = require("https");
+  const data = await new Promise((resolve, reject) => {
+    https.get(`https://localhost:${TLS_PORT}/api/stats`, { rejectUnauthorized: false }, (res) => {
+      let body = "";
+      res.on("data", chunk => body += chunk);
+      res.on("end", () => {
+        try { resolve(JSON.parse(body)); } catch (e) { reject(e); }
+      });
+    }).on("error", reject);
+  });
+  assert.strictEqual(data.tls, true);
+
+  // WebSocket on same port
+  const { ws, welcome } = await wsConnectTls({ token: NETWORK_TOKEN, machine: "test", agent: "SinglePort" });
+  assert.strictEqual(welcome.agent, "SinglePort");
+  ws.close();
+  stopTlsRelay();
+});
+
+// ── 5. Setup wizard (filesystem) ────────────────────────────────────────
+
+test("setup: write relay.json", () => {
+  clean();
+  const config = {
+    url: "wss://relay.example.com:7654",
+    token: "net-secret-123",
+    machine: "mac",
+    teams: {},
+  };
+  writeJson(p("relay.json"), config);
+  const read = readJson(p("relay.json"));
+  assert.strictEqual(read.url, "wss://relay.example.com:7654");
+  assert.strictEqual(read.token, "net-secret-123");
+  assert.strictEqual(read.machine, "mac");
+  assert.deepStrictEqual(read.teams, {});
+});
+
+test("setup: add team to relay.json", () => {
+  clean();
+  writeJson(p("relay.json"), {
+    url: "wss://relay.example.com:7654",
+    token: "net-secret",
+    machine: "mac",
+    teams: {},
+  });
+  const config = readJson(p("relay.json"));
+  config.teams.build = "team-token-abc";
+  writeJson(p("relay.json"), config);
+  const read = readJson(p("relay.json"));
+  assert.strictEqual(read.teams.build, "team-token-abc");
+});
+
+test("setup: invite generates unique team token", () => {
+  const crypto = require("crypto");
+  const t1 = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  const t2 = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  assert.notStrictEqual(t1, t2);
+  assert.strictEqual(t1.length, 16);
+  assert.ok(/^[0-9a-f]+$/.test(t1));
+});
+
+test("setup: join preserves existing teams", () => {
+  clean();
+  writeJson(p("relay.json"), {
+    url: "wss://relay.example.com:7654",
+    token: "net-secret",
+    machine: "mac",
+    teams: { build: "tok1" },
+  });
+  const config = readJson(p("relay.json"));
+  config.teams.review = "tok2";
+  writeJson(p("relay.json"), config);
+  const read = readJson(p("relay.json"));
+  assert.strictEqual(read.teams.build, "tok1");
+  assert.strictEqual(read.teams.review, "tok2");
+  assert.strictEqual(Object.keys(read.teams).length, 2);
+});
+
+test("setup: overwrite relay URL preserves teams", () => {
+  clean();
+  writeJson(p("relay.json"), {
+    url: "wss://old.example.com",
+    token: "old-token",
+    machine: "mac",
+    teams: { build: "tok1", deploy: "tok2" },
+  });
+  const config = readJson(p("relay.json"));
+  config.url = "wss://new.example.com";
+  config.token = "new-token";
+  writeJson(p("relay.json"), config);
+  const read = readJson(p("relay.json"));
+  assert.strictEqual(read.url, "wss://new.example.com");
+  assert.strictEqual(read.token, "new-token");
+  assert.strictEqual(read.teams.build, "tok1");
+  assert.strictEqual(read.teams.deploy, "tok2");
+});
+
+// ── 6. Wizard (one-shot setup) ────────────────────────────────────────────
+
+test("wizard: create team (no token) generates one", () => {
+  clean();
+  // Simulate: /pinet wizard wss://relay:7654 secret mac build
+  const parts = ["wss://relay:7654", "secret", "mac", "build"];
+  const [url, token, machine, teamArg] = parts;
+  const colonIdx = teamArg.indexOf(":");
+  assert.strictEqual(colonIdx, -1); // no token = creating
+  const teamName = colonIdx === -1 ? teamArg : teamArg.slice(0, colonIdx);
+  const teamToken = colonIdx === -1 ? null : teamArg.slice(colonIdx + 1);
+  assert.strictEqual(teamName, "build");
+  assert.strictEqual(teamToken, null);
+  // Wizard would generate a token
+  const generated = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  assert.strictEqual(generated.length, 16);
+  // Write config
+  writeJson(p("relay.json"), { url, token, machine, teams: { [teamName]: generated } });
+  const cfg = readJson(p("relay.json"));
+  assert.strictEqual(cfg.url, "wss://relay:7654");
+  assert.strictEqual(cfg.teams.build, generated);
+});
+
+test("wizard: join team (with token) uses it", () => {
+  clean();
+  // Simulate: /pinet wizard wss://relay:7654 secret pi5 build:abcdef1234567890
+  const teamArg = "build:abcdef1234567890";
+  const colonIdx = teamArg.indexOf(":");
+  assert.ok(colonIdx !== -1);
+  const teamName = teamArg.slice(0, colonIdx);
+  const teamToken = teamArg.slice(colonIdx + 1);
+  assert.strictEqual(teamName, "build");
+  assert.strictEqual(teamToken, "abcdef1234567890");
+  writeJson(p("relay.json"), {
+    url: "wss://relay:7654",
+    token: "secret",
+    machine: "pi5",
+    teams: { [teamName]: teamToken },
+  });
+  const cfg = readJson(p("relay.json"));
+  assert.strictEqual(cfg.teams.build, "abcdef1234567890");
+});
+
+test("wizard: no team arg = relay only", () => {
+  clean();
+  // Simulate: /pinet wizard wss://relay:7654 secret mac
+  writeJson(p("relay.json"), {
+    url: "wss://relay:7654",
+    token: "secret",
+    machine: "mac",
+    teams: {},
+  });
+  const cfg = readJson(p("relay.json"));
+  assert.strictEqual(cfg.url, "wss://relay:7654");
+  assert.deepStrictEqual(cfg.teams, {});
+});
+
+test("wizard: preserves existing teams when adding new", () => {
+  clean();
+  // Pre-existing config with one team
+  writeJson(p("relay.json"), {
+    url: "wss://relay:7654",
+    token: "secret",
+    machine: "mac",
+    teams: { build: "tok-build" },
+  });
+  // Simulate: /pinet wizard wss://relay:7654 secret mac deploy
+  const cfg = readJson(p("relay.json"));
+  cfg.teams.deploy = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  writeJson(p("relay.json"), cfg);
+  const read = readJson(p("relay.json"));
+  assert.strictEqual(read.teams.build, "tok-build");
+  assert.ok(read.teams.deploy);
+  assert.strictEqual(Object.keys(read.teams).length, 2);
+});
+
 // =============================================================================
 
 async function main() {

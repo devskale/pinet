@@ -14,8 +14,20 @@ import * as path from "node:path";
 /** Root directory for all PiNet state */
 export const PINET_DIR = path.join(process.env.HOME || "~", ".pinet");
 
+/** Max lines kept in a JSONL file before compaction */
+export const MAX_JSONL_LINES = 500;
+
 /** Valid name pattern for agents and teams */
 export const NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+// =============================================================================
+// Delivery modes
+// =============================================================================
+
+/** How incoming team messages are delivered to the LLM */
+export type DeliveryMode = "interrupt" | "digest" | "silent";
+
+export const DELIVERY_MODES: DeliveryMode[] = ["interrupt", "digest", "silent"];
 
 // =============================================================================
 // Interfaces
@@ -58,6 +70,7 @@ export interface TeamMeta {
   name: string;
   members: string[];
   roles: Record<string, string>; // member name → role/description
+  delivery: DeliveryMode;
   created: string;
 }
 

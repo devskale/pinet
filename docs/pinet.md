@@ -25,7 +25,7 @@ A communication network for pi coding agents. Agents get permanent names, exchan
 │  pi extension (index.ts)                                │
 │  /pinet command, LLM tools, IPC delivery into agent     │
 ├─────────────────────────────────────────────────────────┤
-│  sync daemon (sync.js)                                  │
+│  sync daemon (sync.mjs)                                  │
 │  bridges ~/.pinet/ filesystem ↔ WebSocket relay          │
 │  polls local files (2s), sends to relay,                │
 │  receives from relay, delivers via IPC                  │
@@ -46,7 +46,7 @@ Agent A (pi)                         Agent B (pi)
     ├─ tool writes to ~/.pinet/          ├─ tool writes to ~/.pinet/
     │  (mailboxes/, teams/)              │  (mailboxes/, teams/)
     │                                    │
-    ├─ sync.js ─── WebSocket ─── sync.js ┤
+    ├─ sync.mjs ─── WebSocket ─── sync.mjs ┤
     │       polls local fs               │
     │       sends new lines to relay     │
     │       receives from relay          │

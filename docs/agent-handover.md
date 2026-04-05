@@ -18,7 +18,7 @@ A relay server lets pi agents on **different machines** talk to each other. With
 | Limits enforced | ✅ 100 agents, 20 teams, 5 per team |
 | Validation | ✅ 19/19 tests passed |
 
-The sync daemon (`sync.js`) is built and auto-started by `/pinet` login when `relay.json` exists. Cross-machine communication works end-to-end.
+The sync daemon (`sync.mjs`) is built and auto-started by `/pinet` login when `relay.json` exists. Cross-machine communication works end-to-end.
 
 ---
 

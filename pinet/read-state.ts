@@ -8,9 +8,7 @@
  */
 
 import * as fs from "node:fs";
-import * as path from "node:path";
-import { pinetPath, readJsonl } from "./store";
-import { TeamMessage } from "./types";
+import { pinetPath } from "./store";
 
 // =============================================================================
 // State
@@ -18,7 +16,7 @@ import { TeamMessage } from "./types";
 
 let myName: string | null = null;
 let personalLineCount = 0;
-let teamLineCounts: Map<string, number> = new Map();
+const teamLineCounts: Map<string, number> = new Map();
 
 // =============================================================================
 // Public API
@@ -52,14 +50,25 @@ export function bumpTeamLineCount(teamName: string) {
   teamLineCounts.set(teamName, countLines(filePath));
 }
 
+/** Adjust read pointer after compaction removed lines from the head */
+export function adjustPersonalPointer(removed: number) {
+  personalLineCount = Math.max(0, personalLineCount - removed);
+}
+
+/** Adjust team read pointer after compaction */
+export function adjustTeamPointer(team: string, removed: number) {
+  const current = teamLineCounts.get(team) ?? 0;
+  teamLineCounts.set(team, Math.max(0, current - removed));
+}
+
 /** Snapshot team line count on join */
-export function startTeamWatcher(_pi: any, teamName: string) {
+export function startTeamWatcher(_pi: unknown, teamName: string) {
   const filePath = pinetPath("teams", teamName, "messages.jsonl");
   teamLineCounts.set(teamName, countLines(filePath));
 }
 
 /** Snapshot personal mailbox on login */
-export function startPersonalWatcher(_pi: any) {
+export function startPersonalWatcher(_pi: unknown) {
   if (!myName) return;
   const filePath = pinetPath("mailboxes", `${myName}.mailbox.jsonl`);
   personalLineCount = countLines(filePath);

@@ -9,9 +9,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import {
-  PINET_DIR, NAME_PATTERN,
+  PINET_DIR, NAME_PATTERN, MAX_JSONL_LINES,
   ADJECTIVES, NOUNS,
-  PresenceEntry, TeamMeta, Binding,
+  PresenceEntry, TeamMeta, DeliveryMode, Binding,
 } from "./types";
 
 // =============================================================================
@@ -64,6 +64,20 @@ export function readJsonl<T = unknown>(filePath: string): T[] {
 export function appendJsonl(filePath: string, obj: unknown) {
   ensureDir(path.dirname(filePath));
   fs.appendFileSync(filePath, JSON.stringify(obj) + "\n");
+}
+
+/** Compact a JSONL file to the last `maxLines` entries. Returns lines removed. */
+export function compactJsonl(filePath: string, maxLines: number = MAX_JSONL_LINES): number {
+  if (!exists(filePath)) return 0;
+  const content = readFile(filePath).trim();
+  if (!content) return 0;
+  const lines = content.split("\n").filter((l) => l.trim());
+  if (lines.length <= maxLines) return 0;
+  const kept = lines.slice(-maxLines);
+  const tmp = filePath + ".tmp." + process.pid;
+  fs.writeFileSync(tmp, kept.join("\n") + "\n");
+  fs.renameSync(tmp, filePath);
+  return lines.length - kept.length;
 }
 
 /** Write a JSON file (creates parent dirs) */
@@ -136,7 +150,7 @@ export function readAllPresence(): PresenceEntry[] {
       const age = Date.now() - new Date(entry.lastSeen).getTime();
       const stale = age > 60_000; // no heartbeat for 60s
       if (!isProcessAlive(entry.pid) || stale) {
-        try { fs.unlinkSync(path.join(dir, file)); } catch {}
+        try { fs.unlinkSync(path.join(dir, file)); } catch { /* already deleted */ }
         continue;
       }
     }
@@ -168,11 +182,26 @@ export function writeTeamMeta(meta: TeamMeta) {
   writeJson(pinetPath("teams", meta.name, "meta.json"), meta);
 }
 
+/** Read the delivery mode for a team (defaults to interrupt) */
+export function readDeliveryMode(teamName: string): DeliveryMode {
+  const meta = readTeamMeta(teamName);
+  return meta?.delivery || "interrupt";
+}
+
+/** Set the delivery mode for a team */
+export function setDeliveryMode(teamName: string, mode: DeliveryMode): boolean {
+  const meta = readTeamMeta(teamName);
+  if (!meta) return false;
+  meta.delivery = mode;
+  writeTeamMeta(meta);
+  return true;
+}
+
 /** Join a team — creates it if it doesn't exist, adds agent to members */
 export function joinTeam(teamName: string, agentName: string, role?: string): boolean {
   let meta = readTeamMeta(teamName);
   if (!meta) {
-    meta = { name: teamName, members: [agentName], roles: {}, created: new Date().toISOString() };
+    meta = { name: teamName, members: [agentName], roles: {}, delivery: "interrupt", created: new Date().toISOString() };
     if (role) meta.roles[agentName] = role;
   } else if (!meta.members.includes(agentName)) {
     meta.members.push(agentName);

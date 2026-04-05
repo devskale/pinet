@@ -1,6 +1,6 @@
 # PiNet Cross-Machine — Design
 
-> **Note:** This was the original design spec for the relay. The relay has since been built and deployed. This doc is kept for design rationale — see `relay.js` and `sync.js` for the actual implementation, and `prd.md` for current architecture.
+> **Note:** This was the original design spec for the relay. The relay has since been built and deployed. This doc is kept for design rationale — see `relay.js` and `sync.mjs` for the actual implementation, and `prd.md` for current architecture.
 
 ## The problem
 

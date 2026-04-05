@@ -6,11 +6,11 @@ import { Type } from "@sinclair/typebox";
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import {
-  pinetPath, readAllPresence, readJsonl, appendJsonl,
-  readTeamMeta, readTeamMessages,
+  pinetPath, readAllPresence, readJsonl, appendJsonl, compactJsonl,
+  readTeamMeta, readTeamMessages, setDeliveryMode,
 } from "./store";
-import { getPersonalLineCount, getTeamLineCount } from "./read-state";
-import { PersonalMessage, TeamMessage } from "./types";
+import { getPersonalLineCount, getTeamLineCount, adjustPersonalPointer, adjustTeamPointer } from "./read-state";
+import { PersonalMessage, TeamMessage, DeliveryMode, DELIVERY_MODES } from "./types";
 
 // =============================================================================
 // State
@@ -22,6 +22,7 @@ let myTeams: string[] = [];
 const TEAM_SEND_LIMIT = 10;
 const TEAM_SEND_WINDOW_MS = 60_000;
 const TEAM_SEND_MIN_GAP_MS = 5_000;
+const MAX_MESSAGE_LENGTH = 2000;
 const teamSendLog = new Map<string, number[]>();
 const teamLastSend = new Map<string, number>();
 
@@ -55,9 +56,11 @@ export function registerPersonalTools(pi: ExtensionAPI) {
     async execute(_id, params) {
       if (!myName) return textReply("Not logged in.");
       const { to, message } = params as { to: string; message: string };
+      if (message.length > MAX_MESSAGE_LENGTH) return textReply(`Message too long (${message.length}/${MAX_MESSAGE_LENGTH} chars).`);
       const online = readAllPresence().some((p) => p.name === to);
 
-      appendJsonl(pinetPath("mailboxes", `${to}.mailbox.jsonl`), {
+      const mailboxPath = pinetPath("mailboxes", `${to}.mailbox.jsonl`);
+      appendJsonl(mailboxPath, {
         id: randomUUID(),
         from: myName,
         to,
@@ -65,7 +68,10 @@ export function registerPersonalTools(pi: ExtensionAPI) {
         timestamp: new Date().toISOString(),
       } satisfies PersonalMessage);
 
-      return textReply(`send to ${myName}->${to}: ${message}`);
+      const removed = compactJsonl(mailboxPath);
+      if (removed > 0) adjustPersonalPointer(removed);
+
+      return textReply(`send to ${myName}->${to}: ${message}${online ? "" : " (offline — queued)"}`);
     },
   });
 
@@ -113,6 +119,7 @@ export function registerTeamTools(pi: ExtensionAPI) {
       if (!myName) return textReply("Not logged in.");
       const { team, message } = params as { team: string; message: string };
       if (!myTeams.includes(team)) return textReply(`Not in #${team}.`);
+      if (message.length > MAX_MESSAGE_LENGTH) return textReply(`Message too long (${message.length}/${MAX_MESSAGE_LENGTH} chars).`);
 
       const now = Date.now();
       const lastSend = teamLastSend.get(team) || 0;
@@ -123,10 +130,15 @@ export function registerTeamTools(pi: ExtensionAPI) {
       teamSendLog.set(team, times);
       teamLastSend.set(team, now);
 
-      appendJsonl(pinetPath("teams", team, "messages.jsonl"), {
+      const teamPath = pinetPath("teams", team, "messages.jsonl");
+      appendJsonl(teamPath, {
         id: randomUUID(), from: myName, team, body: message,
         timestamp: new Date().toISOString(),
       } satisfies TeamMessage);
+
+      const removed = compactJsonl(teamPath);
+      if (removed > 0) adjustTeamPointer(team, removed);
+
       return textReply(`send to ${myName}@${team}: ${message}`);
     },
   });
@@ -161,10 +173,30 @@ export function registerTeamTools(pi: ExtensionAPI) {
         myTeams.map((name) => {
           const meta = readTeamMeta(name);
           const members = meta?.members.join(", ") ?? "?";
+          const delivery = meta?.delivery ?? "interrupt";
           const unread = readTeamMessages(name).slice(getTeamLineCount(name)).filter((m: TeamMessage) => m.from !== myName).length;
-          return `#${name} [${members}]${unread > 0 ? ` ${unread} unread` : ""}`;
+          return `#${name} [${members}] ${delivery}${unread > 0 ? ` ${unread} unread` : ""}`;
         }).join("\n")
       );
+    },
+  });
+
+  pi.registerTool({
+    name: "pinet_team_mode",
+    label: "pinet_team_mode",
+    description: "Set delivery mode for a team. interrupt = wake LLM immediately, digest = queue for manual read, silent = no auto-trigger.",
+    parameters: Type.Object({
+      team: Type.String({ description: "Team name" }),
+      mode: Type.Union(DELIVERY_MODES.map(m => Type.Literal(m)), { description: "interrupt | digest | silent" }),
+    }),
+    async execute(_id, params) {
+      if (!myName) return textReply("Not logged in.");
+      const { team, mode } = params as { team: string; mode: DeliveryMode };
+      if (!myTeams.includes(team)) return textReply(`Not in #${team}.`);
+      if (!DELIVERY_MODES.includes(mode)) return textReply(`Invalid mode. Use: ${DELIVERY_MODES.join(", ")}`);
+      const ok = setDeliveryMode(team, mode);
+      if (!ok) return textReply(`Team #${team} not found.`);
+      return textReply(`#${team} delivery: ${mode}`);
     },
   });
 }

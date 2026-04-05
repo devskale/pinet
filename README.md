@@ -12,7 +12,7 @@ Agent A (pi)                         Agent B (pi)
     ├─ tools write to ~/.pinet/          ├─ tools write to ~/.pinet/
     │  (mailboxes/, teams/)              │  (mailboxes/, teams/)
     │                                    │
-    ├─ sync.js ─── WebSocket ─── sync.js ┤
+    ├─ sync.mjs ─── WebSocket ─── sync.mjs ┤
     │       polls local fs, sends        │
     │       to relay, receives from       │
     │       relay, delivers via IPC       │
@@ -81,7 +81,16 @@ A dashboard is available at `http://your-relay-host:8081` showing connected agen
 /pinet                     # show status
 /pinet off                 # go offline
 /pinet msg <agent> <text>  # send to a team member (no LLM needed)
-/pinet whoami              # show identity and teams
+/pinet mode [team] [mode]  # set delivery mode (interrupt/digest/silent)
+/pinet whoami              # show identity, teams, and delivery modes
+```
+
+### Setup wizard
+
+```
+/pinet wizard <url> <token> [machine] <team>         # create team (generates token to share)
+/pinet wizard <url> <token> [machine] <team:token>    # join existing team
+/pinet wizard <url> <token> [machine]                # relay only (no team)
 ```
 
 ### Personal tools (after any login)
@@ -99,6 +108,7 @@ A dashboard is available at `http://your-relay-host:8081` showing connected agen
 | `pinet_team_send` | Send message to a team chat |
 | `pinet_team_read` | Read unread team messages |
 | `pinet_team_list` | List your teams and members |
+| `pinet_team_mode` | Set delivery mode for a team |
 
 ---
 
@@ -244,7 +254,7 @@ No registration — just pick a name and log in. Names: `a-zA-Z0-9_-`. On login:
 2. **Presence written** — `presence/<name>.json` with `{ status: "online", pid, lastSeen }`. PID lets others detect if you're really alive.
 3. **Tools registered** — personal tools always, team tools if `@team` present.
 4. **Teams joined** — for each team: create `teams/<name>/` if new, add self to `meta.json` members.
-5. **Sync daemon started** — if `relay.json` exists, forks `sync.js` to bridge filesystem ↔ relay.
+5. **Sync daemon started** — if `relay.json` exists, forks `sync.mjs` to bridge filesystem ↔ relay.
 6. **Backlog delivered** — unread messages waiting from the last session are reported.
 
 Only one agent per name can be online (PID check). If the name is already claimed by a live process, login is rejected.
@@ -305,9 +315,9 @@ FrontendDev (pi)              Relay              BackendDev (pi)
        ▼
   append to BackendDev.mailbox.jsonl
        │
-  sync.js polls (2s)
+  sync.mjs polls (2s)
        │
-       ├── append ────────► fan-out ────────► sync.js
+       ├── append ────────► fan-out ────────► sync.mjs
        │                                          │
        │                              write to BackendDev.mailbox.jsonl
        │                              (or skip if same machine)
@@ -320,7 +330,7 @@ FrontendDev (pi)              Relay              BackendDev (pi)
        │                                          │
        │                              append to FrontendDev.mailbox.jsonl
        │                                          │
-       │                              sync.js polls (2s)
+       │                              sync.mjs polls (2s)
        │                                          │
        │◄──── fan-out ◄──────── append ──────────┤
        │
@@ -332,15 +342,15 @@ FrontendDev (pi)              Relay              BackendDev (pi)
 ## Message flow: team chat (4 agents)
 
 ```
-All 4 agents connected to relay via sync.js
+All 4 agents connected to relay via sync.mjs
 
 Master: pinet_team_send("build", "Build a haiku!")
   │
-  ├─ sync.js → relay → fan-out to all sync daemons
+  ├─ sync.mjs → relay → fan-out to all sync daemons
   │
-  ├─ BackendDev sync.js → IPC → LLM sees it → pinet_team_send("build", "Code creates new worlds")
-  ├─ FrontendDev sync.js → IPC → LLM sees it → pinet_team_send("build", "CSS makes pages beautiful")
-  └─ Tester sync.js → IPC → LLM sees it → pinet_team_send("build", "Bugs are squashed at last")
+  ├─ BackendDev sync.mjs → IPC → LLM sees it → pinet_team_send("build", "Code creates new worlds")
+  ├─ FrontendDev sync.mjs → IPC → LLM sees it → pinet_team_send("build", "CSS makes pages beautiful")
+  └─ Tester sync.mjs → IPC → LLM sees it → pinet_team_send("build", "Bugs are squashed at last")
 
 Each agent filters out its own messages (self-filtering).
 All other team members' messages are delivered via pi.sendMessage({ triggerTurn }).

@@ -4,6 +4,10 @@
  *
  * Usage:
  *   node relay.js --port 7654 --token-file relay-token
+ *   node relay.js --port 7654 --token-file relay-token --tls-key key.pem --tls-cert cert.pem
+ *
+ * With TLS, WebSocket and dashboard share a single port (--port).
+ * Without TLS, WebSocket uses --port, dashboard uses --http-port.
  *
  * Two-layer auth:
  *   1. Network token — proves you belong to this PiNet network
@@ -55,6 +59,8 @@ const { values } = parseArgs({
     "token-file": { type: "string" },
     "heartbeat-ms": { type: "string", default: "30000" },
     "auth-timeout-ms": { type: "string", default: "5000" },
+    "tls-key": { type: "string" },
+    "tls-cert": { type: "string" },
   },
   strict: true,
 });
@@ -66,6 +72,9 @@ const TOKEN = values["token-file"]
 if (!TOKEN) {
   console.error("Usage: node relay.js --port 7654 --token <secret>");
   console.error("       node relay.js --port 7654 --token-file <path>");
+  console.error("");
+  console.error("TLS:");
+  console.error("       node relay.js --port 7654 --token-file token --tls-key key.pem --tls-cert cert.pem");
   process.exit(1);
 }
 
@@ -73,6 +82,9 @@ const PORT = parseInt(values.port, 10);
 const HTTP_PORT = parseInt(values["http-port"], 10) || 8081;
 const HEARTBEAT_MS = parseInt(values["heartbeat-ms"], 10);
 const AUTH_TIMEOUT_MS = parseInt(values["auth-timeout-ms"], 10);
+const TLS_KEY = values["tls-key"];
+const TLS_CERT = values["tls-cert"];
+const USE_TLS = !!(TLS_KEY && TLS_CERT);
 
 // =============================================================================
 // Limits
@@ -128,10 +140,11 @@ const teams = new Map();
 const startedAt = new Date().toISOString();
 
 // =============================================================================
-// HTTP server — dashboard + stats API
+// HTTP handler — dashboard + stats API
 // =============================================================================
 
 const http = require("http");
+const https = require("https");
 
 const DASHBOARD_HTML = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>pinet</title></head>
@@ -140,7 +153,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
 <script>function fmt(ms){const s=Math.floor(ms/1000),m=Math.floor(s/60),h=Math.floor(m/60),d=Math.floor(h/24);return d?d+'d '+h%24+'h':h?h%24+'h '+m%60+'m':m+'m'}function refresh(){fetch('/api/stats').then(r=>r.json()).then(d=>{let o='pinet relay';o+='\\n  up '+fmt(d.uptime)+'  agents '+d.agents.length+'/'+d.maxAgents+'  teams '+d.teamList.length+'/'+d.maxTeams;o+='\\n';if(d.agents.length){o+='\\nagents';for(const a of d.agents)o+='\\n  '+a.name+'  '+a.machine+'  '+a.teams.map(t=>'#'+t).join(' ')}else o+='\\n  no agents';if(d.teamList.length){o+='\\n\\nteams';for(const t of d.teamList)o+='\\n  #'+t.name+'  '+t.members.join(', ')+'  ('+t.members.length+'/'+t.max+')'}else o+='\\n\\n  no teams';o+='\\n';document.getElementById('out').textContent=o}).catch(()=>{})}refresh();setInterval(refresh,5000);</script>
 </body></html>`;
 
-const httpServer = http.createServer((req, res) => {
+function handleHttpRequest(req, res) {
   if (req.url === "/api/stats") {
     res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
     const teamList = [...teams.entries()].map(([name, data]) => ({
@@ -152,26 +165,45 @@ const httpServer = http.createServer((req, res) => {
     res.end(JSON.stringify({
       startedAt, uptime: Date.now() - new Date(startedAt).getTime(),
       agents: agentList, maxAgents: MAX_AGENTS,
-      teamList, maxTeams: MAX_TEAMS,
+      teamList, maxTeams: MAX_TEAMS, tls: USE_TLS,
     }));
     return;
   }
   res.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-cache, no-store, must-revalidate" });
   res.end(DASHBOARD_HTML);
-});
-
-httpServer.listen(HTTP_PORT, () => {
-  console.log(`Dashboard on http://localhost:${HTTP_PORT}`);
-});
+}
 
 // =============================================================================
-// WebSocket server
+// Create servers (TLS or plain)
 // =============================================================================
 
-const wss = new WebSocket.Server({ port: PORT });
+const tlsOptions = USE_TLS ? {
+  key: fs.readFileSync(TLS_KEY),
+  cert: fs.readFileSync(TLS_CERT),
+} : null;
+
+// With TLS: single server for both HTTP and WebSocket
+// Without TLS: separate servers on separate ports
+const httpServer = USE_TLS
+  ? https.createServer(tlsOptions, handleHttpRequest)
+  : http.createServer(handleHttpRequest);
+
+const listenPort = USE_TLS ? PORT : HTTP_PORT;
+const scheme = USE_TLS ? "https" : "http";
+
+httpServer.listen(listenPort, () => {
+  console.log(`Dashboard on ${scheme}://localhost:${listenPort}`);
+});
+
+const wss = USE_TLS
+  ? new WebSocket.Server({ server: httpServer })
+  : new WebSocket.Server({ port: PORT });
 
 wss.on("listening", () => {
-  console.log(`PiNet relay listening on :${PORT}`);
+  const wsScheme = USE_TLS ? "wss" : "ws";
+  const wsPort = USE_TLS ? PORT : PORT;
+  console.log(`PiNet relay listening on ${wsScheme}://:${wsPort}${USE_TLS ? " (TLS)" : ""}`);
+  if (USE_TLS) console.log(`TLS: key=${TLS_KEY} cert=${TLS_CERT}`);
   console.log(`Limits: ${MAX_AGENTS} agents, ${MAX_TEAMS} teams, ${MAX_PER_TEAM}/team`);
   console.log(`Heartbeat: ${HEARTBEAT_MS / 1000}s, auth timeout: ${AUTH_TIMEOUT_MS / 1000}s`);
   console.log(`Ready.`);

@@ -23,13 +23,13 @@ PiNet is a communication network for pi coding agents. Agents get permanent name
 │  pi extension (index.ts)                                │
 │  /pinet command, LLM tools, IPC delivery into agent     │
 ├─────────────────────────────────────────────────────────┤
-│  sync daemon (sync.js)                                  │
+│  sync daemon (sync.mjs)                                 │
 │  bridges ~/.pinet/ filesystem ↔ WebSocket relay          │
 │  polls local files (2s), sends to relay,                │
 │  receives from relay, delivers via IPC                  │
 ├─────────────────────────────────────────────────────────┤
 │  relay server (relay.js)                                │
-│  WebSocket fan-out, token auth, presence broadcast      │
+│  WebSocket fan-out, token auth, TLS, presence broadcast │
 ├─────────────────────────────────────────────────────────┤
 │  filesystem (~/.pinet/)                                 │
 │  JSONL mailboxes, team timelines, presence, identity    │
@@ -44,7 +44,7 @@ Agent A (pi)                         Agent B (pi)
     ├─ tool writes to ~/.pinet/          ├─ tool writes to ~/.pinet/
     │  (mailboxes/, teams/)              │  (mailboxes/, teams/)
     │                                    │
-    ├─ sync.js ─── WebSocket ─── sync.js ┤
+    ├─ sync.mjs ─── WebSocket ─── sync.mjs ┤
     │       polls local fs               │
     │       sends new lines to relay     │
     │       receives from relay          │
@@ -63,15 +63,15 @@ Agent A (pi)                         Agent B (pi)
 ```
 ~/.pinet/
 ├── identities.jsonl               # all-time login log
-├── relay.json                     # { url, token, machine }
+├── relay.json                     # { url, token, machine, teams }
 ├── bindings/
 │   └── <cwd-hash>.json            # folder → identity mapping
 ├── mailboxes/
 │   └── <name>.mailbox.jsonl       # personal DMs (one per agent)
 ├── teams/
 │   └── <team>/
-│       ├── meta.json              # { name, members, roles, created }
-│       └── messages.jsonl         # shared timeline
+│       ├── meta.json              # { name, members, roles, delivery, created }
+│       └── messages.jsonl         # shared timeline (auto-compacted to 500 lines)
 └── presence/
     └── <name>.json                # { status, pid, lastSeen }
 ```
@@ -80,14 +80,15 @@ Agent A (pi)                         Agent B (pi)
 
 ```
 pinet/
-├── index.ts      — /pinet command, login/logout/status, sync daemon lifecycle
-├── tools.ts      — 6 LLM tools (pinet_send, pinet_mail, pinet_list,
-│                              pinet_team_send, pinet_team_read, pinet_team_list)
-├── store.ts      — all file I/O: jsonl, json, presence, identity, teams, bindings
+├── index.ts      — /pinet command, login/logout/status, setup wizard, sync daemon lifecycle
+├── tools.ts      — 7 LLM tools (pinet_send, pinet_mail, pinet_list,
+│                              pinet_team_send, pinet_team_read, pinet_team_list,
+│                              pinet_team_mode)
+├── store.ts      — all file I/O: jsonl, json, presence, identity, teams, bindings, compaction
 ├── read-state.ts — read pointers (line counts for unread detection)
-├── types.ts      — interfaces, constants, PINET_DIR, NAME_PATTERN
-├── relay.js      — standalone WebSocket relay server (~500 lines)
-├── sync.js       — filesystem ↔ relay bridge (polling, IPC delivery)
+├── types.ts      — interfaces, constants, delivery modes, PINET_DIR, NAME_PATTERN
+├── relay.js      — standalone WebSocket relay server (TLS support, HTTP dashboard)
+├── sync.mjs      — filesystem ↔ relay bridge (polling, IPC delivery)
 └── package.json
 ```
 
@@ -106,11 +107,29 @@ Agents log in with `/pinet <name>[@<team>]`. No registration — pick a name and
 
 Names: `a-zA-Z0-9_-`. One agent per name online at a time (PID check).
 
+### Setup Wizard
+
+One-command setup for relay connection and team creation/joining:
+
+```
+/pinet wizard wss://relay:7654 secret mac build           # create team + get token to share
+/pinet wizard wss://relay:7654 secret pi5 build:a1b2c3d4  # join existing team
+/pinet wizard wss://relay:7654 secret mac                 # relay only, no team
+/pinet wizard                                              # show help
+```
+
+- No colon after team name → **create** — generates a 16-char token, outputs shareable snippet
+- Colon after team name (`team:token`) → **join** — uses the provided token
+- No team arg → **relay only** — saves config, add teams later
+- Always preserves existing teams in `relay.json`
+
+Step-by-step alternative: `/pinet setup relay`, `/pinet setup invite <team>`, `/pinet setup join <team> <token>`.
+
 ### Personal DMs
 
 1:1 messages between two agents. Appended to the recipient's mailbox file.
 
-- `pinet_send` — send a DM
+- `pinet_send` — send a DM (offline recipients queued, 2000 char max)
 - `pinet_mail` — check unread DMs
 - `pinet_list` — see who's online
 
@@ -118,18 +137,45 @@ Names: `a-zA-Z0-9_-`. One agent per name online at a time (PID check).
 
 Group chats for 3+ agents. Teams emerge from login — the first agent to use `@build` creates it, others join automatically.
 
-- `pinet_team_send` — send to team (rate-limited: 5s gap, 10/min)
+- `pinet_team_send` — send to team (rate-limited: 5s gap, 10/min, 2000 char max)
 - `pinet_team_read` — read unread team messages
-- `pinet_team_list` — list teams, members, unread counts
+- `pinet_team_list` — list teams, members, delivery modes, unread counts
+- `pinet_team_mode` — set delivery mode (interrupt/digest/silent)
 - `/pinet msg <agent> <text>` — send to a specific team member without LLM tool call
 
 Self-message filtering prevents infinite loops — agents only receive messages from others.
+
+### Delivery Modes
+
+Three modes per team, controlling how intrusive incoming messages are:
+
+| Mode | Behavior |
+|------|----------|
+| **interrupt** | `pi.sendMessage({ triggerTurn: true })`. LLM acts immediately. Default. |
+| **digest** | Queue until agent reads with `pinet_team_read`. No triggerTurn. |
+| **silent** | Queue, no auto-trigger. Agent checks manually. |
+
+Set via `/pinet mode <team> <mode>` or the `pinet_team_mode` tool. Backward compatible — old `meta.json` defaults to `interrupt`.
+
+### JSONL Compaction
+
+All JSONL files auto-compact to 500 lines after each send. Read pointers adjust automatically so unread tracking stays correct.
+
+### TLS
+
+Two modes:
+
+| Mode | How |
+|------|-----|
+| **Reverse proxy** (production) | nginx terminates TLS, proxies to plain relay on localhost. Current lubu setup. |
+| **Direct TLS** | `--tls-key key.pem --tls-cert cert.pem` flags on relay.js. Single port for both WebSocket and HTTPS dashboard. |
 
 ### Presence & Crash Recovery
 
 - Online/offline tracked in `presence/<name>.json` with PID and heartbeat
 - Dead agents detected via `process.kill(pid, 0)` — stale entries silently cleaned
 - Presence heartbeat every 30s refreshes `lastSeen`
+- Crash without `/pinet off` → stale presence cleaned on next `pinet_list`
 
 ### Relay Server
 
@@ -141,6 +187,7 @@ WebSocket fan-out server (~500 lines). Dumb routing, no LLM, no storage.
 - Team membership tracking, per-team agent limits (5)
 - Close codes for every rejection reason (4001–4015)
 - HTTP dashboard at `:8081` + `/api/stats` JSON endpoint
+- Optional TLS (`--tls-key` / `--tls-cert`)
 
 ### Sync Daemon
 
@@ -161,14 +208,17 @@ Bridges filesystem ↔ relay. Auto-started by `/pinet` login when `relay.json` e
 | Relay as backbone | One message bus for same-machine and cross-machine. Same architecture everywhere. |
 | Sync daemon as bridge | Keeps the extension simple. Filesystem is the state store, relay is the transport, sync bridges them. |
 | Polling (2s) not fs.watch | Reliable cross-platform. fs.watch behavior varies by OS and filesystem. 2s latency is acceptable for agent communication. |
-| JSONL append-only | No mutations, no corruption risk. Read pointers track what's new. |
+| JSONL append-only + compaction | No mutations, no corruption risk. Read pointers track what's new. Auto-compact prevents unbounded growth. |
 | Self-message filtering | Prevents infinite loops in team chats. Agent sends → relay fans out → agent receives own message → responds → loop. |
 | No lock files | `appendFileSync` is atomic for small writes. Typical messages are ~200-300 bytes. |
 | Rate limiting on team sends | 5s gap, 10 msgs/min. Prevents LLMs from flooding the timeline. |
+| Message body length cap | 2000 chars. Prevents runaway LLM output from bloating JSONL files. |
+| Delivery modes | Not every agent needs interrupt on every team. digest/silent lets agents focus. |
 | No ACL | Any agent can create/join any team. Trust is social. |
 | `PINET_AGENT_NAME` env var | Allows multiple agents on one machine, each with its own identity. |
 | Model per workspace | `.pi/settings.json` in each agent dir. Not all agents need strong models. |
 | Symlink extension per dir | Extension is project-local, not global. Each workspace links it. |
+| TLS via reverse proxy | nginx terminates TLS in production. Direct TLS available for simple deployments. |
 
 ---
 
@@ -181,38 +231,30 @@ Bridges filesystem ↔ relay. Auto-started by `/pinet` login when `relay.json` e
 | Direct team messages (`/pinet msg`) | ✅ | Human-initiated, no LLM needed |
 | Relay (cross-machine) | ✅ | Validated: mac ↔ lubu ↔ pi5 |
 | Dashboard | ✅ | `/api/stats` + HTML |
-| Testbench | ✅ | 17 tests (fs + relay) |
-| Delivery modes | 🔲 | Designed: interrupt/digest/silent per team |
+| JSONL compaction | ✅ | Auto-trim to 500 lines on send |
+| Delivery modes | ✅ | interrupt/digest/silent, 12 tests |
+| TLS | ✅ | Direct + reverse proxy, 5 tests |
+| Setup wizard | ✅ | `/pinet wizard`, 4 tests |
+| Testbench | ✅ | 45 tests |
+| Admin dashboard v2 | 🔲 | SPA with message browser, agent/team management |
+| Message browser API | 🔲 | `/api/messages/<team>`, `/api/mailbox/<agent>` on relay |
+| Network isolation | 🔲 | `~/.pinet/<network>/` namespacing (auth.md design complete) |
+| Routing | 🔲 | Mirror + conditional forwarding (routing.md design complete) |
 | Threads | 🔲 | Sub-conversations off main timeline |
 | Read receipts | 🔲 | Sender knows message was seen |
 | Reactions | 🔲 | Quick emoji feedback |
 | Mentions | 🔲 | @agent forces delivery |
 | Pinned messages | 🔲 | Persistent context in team |
-| Routing | 🔲 | Mirror + conditional forwarding |
 | CLI | 🔲 | Terminal access without pi |
 | Agent daemon | 🔲 | Background process, spawn pi on demand |
 
-### Delivery modes (designed)
+### What to build next
 
-Three modes per team, controlling how intrusive incoming messages are:
+Ranked by effort/impact:
 
-| Mode | Behavior |
-|------|----------|
-| **interrupt** | `pi.sendMessage({ triggerTurn: true })`. LLM acts immediately. Default. |
-| **digest** | Queue until agent reads with `pinet_team_read`. No triggerTurn. |
-| **silent** | Queue, no auto-trigger. Agent checks manually. |
-
-Why: In a 4-agent team, BackendDev doesn't want 20 interruptions while building an API. Delivery modes let each agent set its own interruption budget.
-
-### Routing (designed)
-
-Infrastructure-level wiring — connect outputs to inputs.
-
-- **Mirror** — copy all messages from source to destination
-- **Conditional** — forward only when message matches (e.g., `body.includes("error")`)
-
-Tools: `pinet_route_add`, `pinet_route_remove`, `pinet_route_list`.
-
-### Agent daemon (not designed)
-
-Background process that watches mailboxes and spawns pi on demand. Enables "always-on" agents without keeping terminals open. Design when the need arises from real usage.
+| Priority | Feature | Effort | Why |
+|----------|---------|--------|-----|
+| 🥇 | Message browser API | ~2hr | `/api/messages/<team>`, `/api/mailbox/<agent>` on relay. Backend the dashboard needs. |
+| 🥈 | Admin dashboard v2 | ~4hr | Replace the `<pre>` with a proper SPA. Consumes the browser API. |
+| 🥉 | Network isolation | ~4hr | auth.md design is complete. `~/.pinet/<network>/` namespacing. |
+| 4 | Routing | ~4hr | routing.md design exists. Mirror + conditional forwarding. |

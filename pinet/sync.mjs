@@ -266,7 +266,7 @@ function handleRemoteChange(msg) {
         fileLineCounts.set(filePath, newCount);
       }
       // Always deliver via IPC so the pi agent sees the message
-      try { process.send({ type: "pinet-deliver", channel: "team", path: msg.path, from: msg.from, agent: msg.agent, lines: msg.lines }); } catch (_e) {}
+      try { process.send({ type: "pinet-deliver", channel: "team", path: msg.path, from: msg.from, agent: msg.agent, lines: msg.lines }); } catch { /* parent gone */ }
 
       console.log(`↓ Received ${msg.lines.length} line(s): ${msg.path} (from ${msg.from}${sameMachine ? ", same-machine" : ""})`);
     } else if (msg.type === "write" && msg.content != null) {
@@ -275,7 +275,7 @@ function handleRemoteChange(msg) {
         const content = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
         fs.writeFileSync(filePath, content);
       }
-      try { process.send({ type: "pinet-deliver", channel: "write", path: msg.path, from: msg.from, agent: msg.agent, content: msg.content }); } catch (_e) {}
+      try { process.send({ type: "pinet-deliver", channel: "write", path: msg.path, from: msg.from, agent: msg.agent, content: msg.content }); } catch { /* parent gone */ }
 
       console.log(`↓ Received write: ${msg.path} (from ${msg.from}${sameMachine ? ", same-machine" : ""})`);
     }
