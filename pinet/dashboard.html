@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>pinet</title>
+<style>
+:root{--bg:#0a0a0a;--surface:#111;--surface2:#1a1a1a;--border:#222;--border2:#333;--text:#e5e5e5;--dim:#888;--dimmer:#555;--accent:#3b82f6;--green:#22c55e;--red:#ef4444}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;height:100vh;overflow:hidden}
+a{color:var(--accent);text-decoration:none}
+
+/* ── Login ────────────────────────────── */
+.login-wrap{display:flex;align-items:center;justify-content:center;height:100vh}
+.login{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:2.5rem;width:360px}
+.login h2{text-align:center;margin-bottom:.5rem;font-size:18px;font-weight:600}
+.login p{text-align:center;color:var(--dim);font-size:13px;margin-bottom:1.5rem}
+.login input{width:100%;font-family:inherit;font-size:14px;padding:.7rem .85rem;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);margin-bottom:1rem}
+.login input:focus{outline:none;border-color:var(--accent)}
+.login button{width:100%;padding:.7rem;border-radius:10px;border:none;background:var(--accent);color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .15s}
+.login button:hover{opacity:.85}
+.login .error{color:var(--red);font-size:13px;margin-top:.75rem;text-align:center}
+.hidden{display:none!important}
+
+/* ── App shell ────────────────────────── */
+.app{display:flex;height:100vh}
+
+/* Sidebar */
+.sidebar{width:320px;min-width:320px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.sidebar-header{padding:1rem 1.25rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.sidebar-header h1{font-size:16px;font-weight:700;letter-spacing:.5px}
+.sidebar-header .status{font-size:11px;color:var(--dim)}
+.sidebar-header .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:4px;vertical-align:middle}
+
+.conv-list{flex:1;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.conv-section{padding:.5rem 1rem .25rem;font-size:11px;font-weight:600;color:var(--dimmer);text-transform:uppercase;letter-spacing:.5px}
+.conv-item{display:flex;align-items:center;padding:.75rem 1.25rem;cursor:pointer;border-left:3px solid transparent;transition:background .1s}
+.conv-item:hover{background:var(--surface2)}
+.conv-item.active{background:var(--surface2);border-left-color:var(--accent)}
+.conv-avatar{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;margin-right:.85rem;flex-shrink:0}
+.conv-avatar.team{background:#1e3a5f;color:#60a5fa}
+.conv-avatar.dm{background:#1a3a2a;color:#4ade80}
+.conv-body{flex:1;min-width:0}
+.conv-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px}
+.conv-name{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv-time{font-size:11px;color:var(--dimmer);flex-shrink:0;margin-left:.5rem}
+.conv-preview{font-size:13px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv-preview .from-name{color:var(--dimmer);margin-right:4px}
+.conv-badge{background:var(--accent);color:#fff;font-size:11px;font-weight:700;border-radius:10px;padding:1px 7px;margin-left:.5rem;flex-shrink:0}
+
+/* Chat panel */
+.chat{flex:1;display:flex;flex-direction:column;background:var(--bg)}
+.chat-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--dimmer);font-size:15px}
+.chat-header{padding:.85rem 1.25rem;border-bottom:1px solid var(--border);background:var(--surface);display:flex;align-items:center;justify-content:space-between}
+.chat-header-left{display:flex;align-items:center}
+.chat-header h3{font-size:15px;font-weight:600}
+.chat-header .chat-sub{font-size:12px;color:var(--dim);margin-top:1px}
+.chat-header .members-list{font-size:12px;color:var(--dim)}
+.chat-header .members-list .online-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:3px;vertical-align:middle}
+
+.messages{flex:1;overflow-y:auto;padding:1rem 1.25rem;scrollbar-width:thin;scrollbar-color:var(--border) transparent;display:flex;flex-direction:column}
+.msg{max-width:70%;margin-bottom:.5rem}
+.msg.other{align-self:flex-start}
+.msg.self{align-self:flex-end}
+.msg-bubble{padding:.55rem .85rem;border-radius:12px;font-size:14px;line-height:1.5;word-break:break-word}
+.msg.other .msg-bubble{background:var(--surface2);border-bottom-left-radius:4px}
+.msg.self .msg-bubble{background:#1e3a5f;border-bottom-right-radius:4px}
+.msg-meta{font-size:11px;color:var(--dimmer);margin-top:2px;padding:0 4px}
+.msg.other .msg-meta{text-align:left}
+.msg.self .msg-meta{text-align:right}
+.msg .sender{font-size:12px;color:var(--accent);font-weight:600;margin-bottom:1px;padding:0 4px}
+.msg-date{display:flex;align-items:center;justify-content:center;padding:1rem 0}
+.msg-date span{font-size:11px;color:var(--dimmer);background:var(--surface);padding:3px 12px;border-radius:8px}
+
+/* Mobile */
+@media(max-width:768px){
+  .sidebar{width:100%;min-width:100%;display:flex}
+  .chat{position:absolute;top:0;left:0;width:100%;height:100%;z-index:20}
+  .chat.hidden-mobile{display:none}
+  .sidebar.hidden-mobile{display:none}
+  .back-btn{display:block!important}
+}
+.back-btn{display:none;background:none;border:none;color:var(--accent);font-size:14px;cursor:pointer;padding:.25rem .5rem;margin-right:.5rem}
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="login" class="login-wrap">
+  <div class="login">
+    <h2>pinet</h2>
+    <p>agent messaging network</p>
+    <input id="token-input" type="password" placeholder="network token" autofocus>
+    <button onclick="doLogin()">connect</button>
+    <div id="login-error" class="error hidden"></div>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app" class="app hidden">
+  <!-- Sidebar -->
+  <div id="sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <div><h1><span class="dot"></span>pinet</h1></div>
+      <div class="status" id="status-line"></div>
+    </div>
+    <div class="conv-list" id="conv-list"></div>
+  </div>
+  <!-- Chat -->
+  <div id="chat" class="chat hidden-mobile">
+    <div class="chat-empty" id="chat-empty">select a conversation</div>
+    <div id="chat-active" class="hidden" style="display:flex;flex-direction:column;height:100%">
+      <div class="chat-header" id="chat-header"></div>
+      <div class="messages" id="chat-messages"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const TOKEN_KEY = 'pinet-token';
+let TOKEN = sessionStorage.getItem(TOKEN_KEY) || '';
+let refreshTimer = null;
+let selectedType = null; // 'team' | 'dm'
+let selectedId = null;   // team name or agent name
+let myAgent = null;      // not tracked — we don't know who "we" are, so we don't distinguish self/other
+
+function $(id){ return document.getElementById(id); }
+function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+function fmtTime(iso){
+  if(!iso) return '';
+  const d = new Date(iso), now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if(sameDay) return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  const diff = (now - d)/(1000*60*60*24);
+  if(diff < 1) return 'yesterday';
+  return d.toLocaleDateString([],{month:'short',day:'numeric'});
+}
+function fmtFull(iso){
+  if(!iso) return '';
+  return new Date(iso).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+}
+
+async function api(path){
+  const r = await fetch(path + (path.includes('?') ? '&' : '?') + 'token=' + TOKEN);
+  if(r.status === 401) throw new Error('unauthorized');
+  return r.json();
+}
+
+// ── Login ──────────────────────────────────────────────────────
+async function doLogin(){
+  TOKEN = $('token-input').value.trim();
+  if(!TOKEN) return;
+  try{
+    const d = await api('/api/stats');
+    sessionStorage.setItem(TOKEN_KEY, TOKEN);
+    $('login').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    renderSidebar(d);
+    loadPreviews();
+    refreshTimer = setInterval(() => { poll(); loadPreviews(); }, 4000);
+  }catch(e){
+    $('login-error').textContent = 'invalid token';
+    $('login-error').classList.remove('hidden');
+  }
+}
+$('token-input').addEventListener('keydown', e => { if(e.key === 'Enter') doLogin(); });
+if(TOKEN) doLogin();
+
+// ── Poll ───────────────────────────────────────────────────────
+async function poll(){
+  try{
+    const d = await api('/api/stats');
+    renderSidebar(d);
+    if(selectedType && selectedId) loadChat();
+  }catch{}
+}
+
+// ── Sidebar ────────────────────────────────────────────────────
+function renderSidebar(stats){
+  const convs = buildConversations(stats);
+  let html = '';
+
+  // Teams (groups)
+  const teams = convs.filter(c => c.type === 'team');
+  if(teams.length){
+    html += '<div class="conv-section">groups</div>';
+    for(const t of teams){
+      const active = selectedType === 'team' && selectedId === t.id;
+      html += convItem(t, active);
+    }
+  }
+
+  // DMs
+  const dms = convs.filter(c => c.type === 'dm');
+  if(dms.length){
+    html += '<div class="conv-section">direct</div>';
+    for(const d of dms){
+      const active = selectedType === 'dm' && selectedId === d.id;
+      html += convItem(d, active);
+    }
+  }
+
+  if(!teams.length && !dms.length){
+    html = '<div style="padding:2rem;text-align:center;color:var(--dimmer);font-size:13px">no conversations yet</div>';
+  }
+
+  $('conv-list').innerHTML = html;
+
+  // Status line
+  $('status-line').textContent = stats.agents.length + ' online';
+}
+
+function buildConversations(stats){
+  const convs = [];
+  // We'll load conversations async — for now build from stats
+  // Teams are known from stats
+  for(const t of (stats.teamList || [])){
+    convs.push({
+      type: 'team',
+      id: t.name,
+      name: t.name,
+      subtitle: t.members.length + ' members',
+      members: t.members,
+      lastMessage: null, // filled by conversations API
+      time: null,
+      count: 0,
+    });
+  }
+  // Agents as potential DM targets
+  for(const a of (stats.agents || [])){
+    convs.push({
+      type: 'dm',
+      id: a.name,
+      name: a.name,
+      subtitle: a.machine,
+      machine: a.machine,
+      teams: a.teams || [],
+      lastMessage: null,
+      time: null,
+      count: 0,
+    });
+  }
+  return convs;
+}
+
+function convItem(c, active){
+  const cls = 'conv-item' + (active ? ' active' : '');
+  const avatarCls = 'conv-avatar ' + (c.type === 'team' ? 'team' : 'dm');
+  const initials = c.type === 'team' ? '#' : c.name.slice(0,2).toUpperCase();
+  const preview = c.lastMessage
+    ? '<span class="from-name">' + esc(c.lastMessage.from) + ':</span>' + esc(c.lastMessage.body)
+    : (c.type === 'team' ? esc(c.subtitle) : esc(c.subtitle));
+  const time = c.time ? fmtTime(c.time) : '';
+  const badge = c.count > 0 ? '<span class="conv-badge">' + c.count + '</span>' : '';
+  return '<div class="' + cls + '" onclick="selectConv(\'' + c.type + '\',\'' + esc(c.id) + '\')">'
+    + '<div class="' + avatarCls + '">' + initials + '</div>'
+    + '<div class="conv-body">'
+    + '<div class="conv-top"><span class="conv-name">' + (c.type === 'team' ? '# ' : '') + esc(c.name) + '</span>'
+    + '<span class="conv-time">' + time + '</span></div>'
+    + '<div class="conv-preview">' + preview + '</div>'
+    + '</div>' + badge + '</div>';
+}
+
+// ── Select conversation ────────────────────────────────────────
+function selectConv(type, id){
+  selectedType = type;
+  selectedId = id;
+  $('chat-empty').classList.add('hidden');
+  $('chat-active').classList.remove('hidden');
+  // Mobile: show chat, hide sidebar
+  $('chat').classList.remove('hidden-mobile');
+  $('sidebar').classList.add('hidden-mobile');
+  loadChat();
+}
+
+function goBack(){
+  selectedType = null;
+  selectedId = null;
+  $('chat').classList.add('hidden-mobile');
+  $('sidebar').classList.remove('hidden-mobile');
+}
+
+// ── Load chat messages ─────────────────────────────────────────
+async function loadChat(){
+  if(!selectedType || !selectedId) return;
+  try{
+    let data;
+    if(selectedType === 'team'){
+      data = await api('/api/messages/' + encodeURIComponent(selectedId));
+      renderChatHeader(selectedId, data.members || [], 'team');
+    }else{
+      data = await api('/api/mailbox/' + encodeURIComponent(selectedId));
+      renderChatHeader(selectedId, [], 'dm');
+    }
+    renderMessages(data.messages || []);
+  }catch(e){
+    $('chat-messages').innerHTML = '<div style="text-align:center;color:var(--dim);padding:2rem">error: ' + esc(e.message) + '</div>';
+  }
+}
+
+function renderChatHeader(name, members, type){
+  let html = '<div class="chat-header-left">';
+  html += '<button class="back-btn" onclick="goBack()">← back</button>';
+  html += '<div><h3>' + (type === 'team' ? '# ' : '') + esc(name) + '</h3>';
+  if(type === 'team' && members.length){
+    html += '<div class="members-list">' + members.map(m => '<span><span class="online-dot"></span>' + esc(m) + '</span>').join(' · ') + '</div>';
+  }else{
+    html += '<div class="chat-sub">direct message</div>';
+  }
+  html += '</div></div>';
+  $('chat-header').innerHTML = html;
+}
+
+function renderMessages(messages){
+  if(!messages.length){
+    $('chat-messages').innerHTML = '<div style="text-align:center;color:var(--dimmer);padding:3rem">no messages yet</div>';
+    return;
+  }
+  let html = '';
+  let lastDate = '';
+  for(const m of messages){
+    const date = m.timestamp ? new Date(m.timestamp).toDateString() : '';
+    if(date && date !== lastDate){
+      lastDate = date;
+      html += '<div class="msg-date"><span>' + fmtTime(m.timestamp) + '</span></div>';
+    }
+    // We can't distinguish self/other without knowing our agent name
+    // So show all as "other" with sender name
+    html += '<div class="msg other">';
+    html += '<div class="sender">' + esc(m.from) + '</div>';
+    html += '<div class="msg-bubble">' + esc(m.body) + '</div>';
+    html += '<div class="msg-meta">' + fmtFull(m.timestamp) + '</div>';
+    html += '</div>';
+  }
+  $('chat-messages').innerHTML = html;
+  $('chat-messages').scrollTop = $('chat-messages').scrollHeight;
+}
+
+// ── Load conversation previews ─────────────────────────────────
+async function loadPreviews(){
+  try{
+    const conv = await api('/api/conversations');
+    updatePreviews(conv);
+  }catch{}
+}
+
+function updatePreviews(conv){
+  const items = $('conv-list').querySelectorAll('.conv-item');
+  // For each team in conv.teams, update preview if matching
+  for(const t of conv.teams || []){
+    const el = $('conv-list').querySelector('.conv-item[onclick*="team"][onclick*="' + t.name + '"]');
+    if(el && t.lastMessage){
+      const preview = el.querySelector('.conv-preview');
+      if(preview) preview.innerHTML = '<span class="from-name">' + esc(t.lastMessage.from) + ':</span>' + esc(t.lastMessage.body);
+      const time = el.querySelector('.conv-time');
+      if(time) time.textContent = fmtTime(t.lastMessage.timestamp);
+    }
+  }
+}
+
+// Load previews after sidebar renders
+function enhancedPoll(){
+  poll().then(() => loadPreviews());
+}
+if(refreshTimer) clearInterval(refreshTimer);
+// Will be set after login
+</script>
+</body>
+</html>

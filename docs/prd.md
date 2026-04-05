@@ -186,8 +186,12 @@ WebSocket fan-out server (~500 lines). Dumb routing, no LLM, no storage.
 - Same-machine reconnect (kicks old connection)
 - Team membership tracking, per-team agent limits (5)
 - Close codes for every rejection reason (4001–4015)
-- HTTP dashboard at `:8081` + `/api/stats` JSON endpoint
+- HTTP dashboard v2 at `:8081` — SPA with login, overview, agents, message browser
 - Optional TLS (`--tls-key` / `--tls-cert`)
+- Message browser API: `/api/messages/<team>`, `/api/mailbox/<agent>` with token auth
+  - Ring buffers in memory (200 messages per channel)
+  - Auth via `?token=` query param or `Authorization: Bearer` header
+  - Supports `?limit=N` (max 200) and `?before=<ISO timestamp>` for pagination
 
 ### Sync Daemon
 
@@ -235,9 +239,9 @@ Bridges filesystem ↔ relay. Auto-started by `/pinet` login when `relay.json` e
 | Delivery modes | ✅ | interrupt/digest/silent, 12 tests |
 | TLS | ✅ | Direct + reverse proxy, 5 tests |
 | Setup wizard | ✅ | `/pinet wizard`, 4 tests |
-| Testbench | ✅ | 45 tests |
-| Admin dashboard v2 | 🔲 | SPA with message browser, agent/team management |
-| Message browser API | 🔲 | `/api/messages/<team>`, `/api/mailbox/<agent>` on relay |
+| Testbench | ✅ | 53 tests |
+| Dashboard v2 | ✅ | SPA with login, overview, agents, message browser. Served from dashboard.html |
+| Message browser API | ✅ | `/api/messages/<team>`, `/api/mailbox/<agent>`, token auth, 6 tests |
 | Network isolation | 🔲 | `~/.pinet/<network>/` namespacing (auth.md design complete) |
 | Routing | 🔲 | Mirror + conditional forwarding (routing.md design complete) |
 | Threads | 🔲 | Sub-conversations off main timeline |
@@ -254,7 +258,6 @@ Ranked by effort/impact:
 
 | Priority | Feature | Effort | Why |
 |----------|---------|--------|-----|
-| 🥇 | Message browser API | ~2hr | `/api/messages/<team>`, `/api/mailbox/<agent>` on relay. Backend the dashboard needs. |
-| 🥈 | Admin dashboard v2 | ~4hr | Replace the `<pre>` with a proper SPA. Consumes the browser API. |
-| 🥉 | Network isolation | ~4hr | auth.md design is complete. `~/.pinet/<network>/` namespacing. |
+| 🥇 | Network isolation | ~4hr | auth.md design is complete. `~/.pinet/<network>/` namespacing. |
+| 🥈 | Routing | ~4hr | routing.md design exists. Mirror + conditional forwarding. |
 | 4 | Routing | ~4hr | routing.md design exists. Mirror + conditional forwarding. |

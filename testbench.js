@@ -15,6 +15,7 @@ const PINET = path.join(os.homedir(), ".pinet");
 const TB = path.join(PINET, "testbench");
 const RELAY_PORT = 17654;
 const RELAY_URL = `ws://127.0.0.1:${RELAY_PORT}`;
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const NETWORK_TOKEN = "testbench-token";
 
 let relayProc = null;
@@ -1010,10 +1011,225 @@ test("wizard: preserves existing teams when adding new", () => {
   assert.strictEqual(Object.keys(read.teams).length, 2);
 });
 
-// =============================================================================
+// ── 7. Message browser API ────────────────────────────────────────────────
+
+const HTTP_GET_PORT = RELAY_PORT + 1;
+
+function httpGet(urlStr) {
+  return new Promise((resolve, reject) => {
+    const http = require("http");
+    http.get(urlStr, res => {
+      let body = "";
+      res.on("data", chunk => body += chunk);
+      res.on("end", () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(body) }); }
+        catch (e) { resolve({ status: res.statusCode, body }); }
+      });
+    }).on("error", reject);
+  });
+}
+
+test("browser: /api/messages/<team> returns team messages", async () => {
+  const teamToken = "browser-team-token";
+  const { ws: ws1 } = await wsConnect({
+    token: NETWORK_TOKEN, machine: "m1", agent: "BrowserAlice",
+    teams: { browserteam: teamToken },
+  });
+  const { ws: ws2 } = await wsConnect({
+    token: NETWORK_TOKEN, machine: "m2", agent: "BrowserBob",
+    teams: { browserteam: teamToken },
+  });
+
+  await sleep(100);
+
+  ws1.send(JSON.stringify({
+    type: "append",
+    path: "teams/browserteam/messages.jsonl",
+    lines: [JSON.stringify({ from: "BrowserAlice", team: "browserteam", body: "hello from API test", timestamp: new Date().toISOString() })],
+  }));
+  await sleep(200);
+
+  const result = await httpGet(`http://127.0.0.1:${HTTP_GET_PORT}/api/messages/browserteam?token=${NETWORK_TOKEN}`);
+  assert.strictEqual(result.status, 200);
+  assert.strictEqual(result.body.team, "browserteam");
+  assert.ok(result.body.count >= 1);
+  assert.ok(result.body.messages.some(m => m.body === "hello from API test" && m.from === "BrowserAlice"));
+
+  ws1.close();
+  ws2.close();
+});
+
+test("browser: /api/mailbox/<agent> returns DMs", async () => {
+  const { ws: ws1 } = await wsConnect({
+    token: NETWORK_TOKEN, machine: "m1", agent: "MailSender",
+    teams: {},
+  });
+  const { ws: ws2 } = await wsConnect({
+    token: NETWORK_TOKEN, machine: "m2", agent: "MailRecv",
+    teams: {},
+  });
+
+  await sleep(100);
+
+  ws1.send(JSON.stringify({
+    type: "append",
+    path: "mailboxes/MailRecv.mailbox.jsonl",
+    lines: [JSON.stringify({ from: "MailSender", to: "MailRecv", body: "DM test message", timestamp: new Date().toISOString() })],
+  }));
+  await sleep(200);
+
+  const result = await httpGet(`http://127.0.0.1:${HTTP_GET_PORT}/api/mailbox/MailRecv?token=${NETWORK_TOKEN}`);
+  assert.strictEqual(result.status, 200);
+  assert.strictEqual(result.body.agent, "MailRecv");
+  assert.ok(result.body.count >= 1);
+  assert.ok(result.body.messages.some(m => m.body === "DM test message" && m.from === "MailSender"));
+
+  ws1.close();
+  ws2.close();
+});
+
+test("browser: /api/messages requires auth", async () => {
+  const result = await httpGet(`http://127.0.0.1:${HTTP_GET_PORT}/api/messages/anything`);
+  assert.strictEqual(result.status, 401);
+  assert.strictEqual(result.body.error, "unauthorized");
+});
+
+test("browser: /api/messages/<unknown> returns 404", async () => {
+  const result = await httpGet(`http://127.0.0.1:${HTTP_GET_PORT}/api/messages/nonexistent?token=${NETWORK_TOKEN}`);
+  assert.strictEqual(result.status, 404);
+  assert.ok(result.body.error.includes("not found"));
+});
+
+test("browser: /api/messages with ?limit=1 caps results", async () => {
+  const teamToken = "limit-team-token";
+  const { ws: ws1 } = await wsConnect({
+    token: NETWORK_TOKEN, machine: "m1", agent: "LimitAlice",
+    teams: { limitteam: teamToken },
+  });
+
+  await sleep(100);
+
+  for (let i = 0; i < 3; i++) {
+    ws1.send(JSON.stringify({
+      type: "append",
+      path: "teams/limitteam/messages.jsonl",
+      lines: [JSON.stringify({ from: "LimitAlice", body: `msg ${i}`, timestamp: new Date().toISOString() })],
+    }));
+    await sleep(50);
+  }
+  await sleep(200);
+
+  const result = await httpGet(`http://127.0.0.1:${HTTP_GET_PORT}/api/messages/limitteam?token=${NETWORK_TOKEN}&limit=1`);
+  assert.strictEqual(result.status, 200);
+  assert.strictEqual(result.body.count, 1);
+
+  ws1.close();
+});
+
+test("browser: Bearer token auth works", async () => {
+  const teamToken = "bearer-team-token";
+  const { ws: ws1 } = await wsConnect({
+    token: NETWORK_TOKEN, machine: "m1", agent: "BearerAlice",
+    teams: { bearerteam: teamToken },
+  });
+
+  await sleep(100);
+
+  ws1.send(JSON.stringify({
+    type: "append",
+    path: "teams/bearerteam/messages.jsonl",
+    lines: [JSON.stringify({ from: "BearerAlice", body: "bearer test", timestamp: new Date().toISOString() })],
+  }));
+  await sleep(200);
+
+  const result = await new Promise((resolve, reject) => {
+    const http = require("http");
+    const opts = {
+      hostname: "127.0.0.1",
+      port: HTTP_GET_PORT,
+      path: "/api/messages/bearerteam",
+      headers: { Authorization: `Bearer ${NETWORK_TOKEN}` },
+    };
+    http.get(opts, res => {
+      let body = "";
+      res.on("data", chunk => body += chunk);
+      res.on("end", () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(body) }); }
+        catch (e) { resolve({ status: res.statusCode, body }); }
+      });
+    }).on("error", reject);
+  });
+  assert.strictEqual(result.status, 200);
+  assert.ok(result.body.count >= 1);
+
+  ws1.close();
+});
+
+test("dashboard: serves SPA with login form", async () => {
+  const result = await new Promise((resolve, reject) => {
+    const http = require("http");
+    http.get(`http://127.0.0.1:${HTTP_GET_PORT}/`, res => {
+      let body = "";
+      res.on("data", chunk => body += chunk);
+      res.on("end", () => resolve({ status: res.statusCode, body }));
+    }).on("error", reject);
+  });
+  assert.strictEqual(result.status, 200);
+  assert.ok(result.body.includes("token-input"));
+  assert.ok(result.body.includes("doLogin"));
+  assert.ok(result.body.includes("conv-list"));
+  assert.ok(result.body.includes("chat-messages"));
+  assert.ok(result.body.includes("sidebar"));
+});
+
+test("browser: /api/conversations returns teams and dms", async () => {
+  const teamToken = "conv-team-token";
+  const { ws: ws1 } = await wsConnect({
+    token: NETWORK_TOKEN, machine: "m1", agent: "ConvAlice",
+    teams: { convteam: teamToken },
+  });
+  const { ws: ws2 } = await wsConnect({
+    token: NETWORK_TOKEN, machine: "m2", agent: "ConvBob",
+    teams: { convteam: teamToken },
+  });
+
+  await sleep(100);
+
+  // Send a team message
+  ws1.send(JSON.stringify({
+    type: "append",
+    path: "teams/convteam/messages.jsonl",
+    lines: [JSON.stringify({ from: "ConvAlice", body: "conversation test", timestamp: new Date().toISOString() })],
+  }));
+  // Send a DM
+  ws1.send(JSON.stringify({
+    type: "append",
+    path: "mailboxes/ConvBob.mailbox.jsonl",
+    lines: [JSON.stringify({ from: "ConvAlice", to: "ConvBob", body: "DM convo test", timestamp: new Date().toISOString() })],
+  }));
+  await sleep(200);
+
+  const result = await httpGet(`http://127.0.0.1:${HTTP_GET_PORT}/api/conversations?token=${NETWORK_TOKEN}`);
+  assert.strictEqual(result.status, 200);
+  assert.ok(result.body.teams);
+  assert.ok(result.body.dms);
+  const team = result.body.teams.find(t => t.name === "convteam");
+  assert.ok(team);
+  assert.ok(team.members.includes("ConvAlice"));
+  assert.ok(team.members.includes("ConvBob"));
+  assert.ok(team.lastMessage);
+  assert.strictEqual(team.lastMessage.from, "ConvAlice");
+  assert.strictEqual(team.lastMessage.body, "conversation test");
+  const dm = result.body.dms.find(d => d.agent === "ConvBob");
+  assert.ok(dm);
+  assert.strictEqual(dm.lastMessage.from, "ConvAlice");
+
+  ws1.close();
+  ws2.close();
+});
 
 async function main() {
-  console.log("╔═══════════════════════════════════════════╗");
+  console.log("╔══════════════════════════════════════════╗");
   console.log("║  PiNet Testbench — localhost (fs + relay)   ║");
   console.log("╚═══════════════════════════════════════════╝\n");
 

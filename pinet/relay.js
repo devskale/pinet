@@ -46,6 +46,7 @@
 
 const { parseArgs } = require("node:util");
 const fs = require("node:fs");
+const path = require("node:path");
 
 // =============================================================================
 // CLI
@@ -93,6 +94,7 @@ const USE_TLS = !!(TLS_KEY && TLS_CERT);
 const MAX_AGENTS = 100;
 const MAX_TEAMS = 20;
 const MAX_PER_TEAM = 5;
+const MAX_BUFFER_PER_CHANNEL = 200;
 
 // =============================================================================
 // Close codes
@@ -133,6 +135,21 @@ const agents = new Map();
 /** teamName → { token: string, agents: Set<string> } */
 const teams = new Map();
 
+// ── Message buffers (ring) for browser API ────────────────────────────────
+
+/** teamName → Message[] (max MAX_BUFFER_PER_CHANNEL) */
+const teamBuffers = new Map();
+
+/** agentName → Message[] (max MAX_BUFFER_PER_CHANNEL) — DM mailbox */
+const dmBuffers = new Map();
+
+function bufferPush(map, key, msg) {
+  if (!map.has(key)) map.set(key, []);
+  const buf = map.get(key);
+  buf.push(msg);
+  if (buf.length > MAX_BUFFER_PER_CHANNEL) buf.splice(0, buf.length - MAX_BUFFER_PER_CHANNEL);
+}
+
 // =============================================================================
 // Server
 // =============================================================================
@@ -146,16 +163,44 @@ const startedAt = new Date().toISOString();
 const http = require("http");
 const https = require("https");
 
-const DASHBOARD_HTML = `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>pinet</title></head>
-<body style="font-family:monospace;background:#000;color:#fff;padding:2rem;max-width:640px">
-<pre id="out">loading...</pre>
-<script>function fmt(ms){const s=Math.floor(ms/1000),m=Math.floor(s/60),h=Math.floor(m/60),d=Math.floor(h/24);return d?d+'d '+h%24+'h':h?h%24+'h '+m%60+'m':m+'m'}function refresh(){fetch('/api/stats').then(r=>r.json()).then(d=>{let o='pinet relay';o+='\\n  up '+fmt(d.uptime)+'  agents '+d.agents.length+'/'+d.maxAgents+'  teams '+d.teamList.length+'/'+d.maxTeams;o+='\\n';if(d.agents.length){o+='\\nagents';for(const a of d.agents)o+='\\n  '+a.name+'  '+a.machine+'  '+a.teams.map(t=>'#'+t).join(' ')}else o+='\\n  no agents';if(d.teamList.length){o+='\\n\\nteams';for(const t of d.teamList)o+='\\n  #'+t.name+'  '+t.members.join(', ')+'  ('+t.members.length+'/'+t.max+')'}else o+='\\n\\n  no teams';o+='\\n';document.getElementById('out').textContent=o}).catch(()=>{})}refresh();setInterval(refresh,5000);</script>
-</body></html>`;
+const DASHBOARD_HTML = fs.readFileSync(path.join(__dirname, "dashboard.html"), "utf-8");
+
+const URL = require("url");
 
 function handleHttpRequest(req, res) {
-  if (req.url === "/api/stats") {
-    res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+  const parsed = URL.parse(req.url, true);
+  const pathname = parsed.pathname;
+  const query = parsed.query;
+
+  // ── CORS preflight ───────────────────────────────────────────────────
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Authorization",
+      "Access-Control-Max-Age": "86400",
+    });
+    res.end();
+    return;
+  }
+
+  const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
+
+  // ── Auth helper ──────────────────────────────────────────────────────
+  function checkToken() {
+    // Token from: ?token=... OR Authorization: Bearer ...
+    const t = query.token || (req.headers.authorization && req.headers.authorization.replace("Bearer ", ""));
+    if (t !== TOKEN) {
+      res.writeHead(401, headers);
+      res.end(JSON.stringify({ error: "unauthorized" }));
+      return false;
+    }
+    return true;
+  }
+
+  // ── /api/stats ───────────────────────────────────────────────────────
+  if (pathname === "/api/stats") {
+    res.writeHead(200, headers);
     const teamList = [...teams.entries()].map(([name, data]) => ({
       name, members: [...data.agents], max: MAX_PER_TEAM,
     }));
@@ -169,6 +214,88 @@ function handleHttpRequest(req, res) {
     }));
     return;
   }
+
+  // ── /api/messages/<team> ─────────────────────────────────────────────
+  const messagesMatch = pathname.match(/^\/api\/messages\/([^/]+)$/);
+  if (messagesMatch) {
+    if (!checkToken()) return;
+    const teamName = decodeURIComponent(messagesMatch[1]);
+    const limit = Math.min(parseInt(query.limit, 10) || 50, 200);
+    const before = query.before; // ISO timestamp — return messages before this
+
+    if (!teams.has(teamName)) {
+      res.writeHead(404, headers);
+      res.end(JSON.stringify({ error: `team "${teamName}" not found` }));
+      return;
+    }
+
+    let messages = teamBuffers.get(teamName) || [];
+    if (before) messages = messages.filter(m => m.timestamp < before);
+    messages = messages.slice(-limit);
+
+    res.writeHead(200, headers);
+    res.end(JSON.stringify({
+      team: teamName,
+      members: [...teams.get(teamName).agents],
+      count: messages.length,
+      messages,
+    }));
+    return;
+  }
+
+  // ── /api/mailbox/<agent> ─────────────────────────────────────────────
+  const mailboxMatch = pathname.match(/^\/api\/mailbox\/([^/]+)$/);
+  if (mailboxMatch) {
+    if (!checkToken()) return;
+    const agentName = decodeURIComponent(mailboxMatch[1]);
+    const limit = Math.min(parseInt(query.limit, 10) || 50, 200);
+    const before = query.before;
+
+    let messages = dmBuffers.get(agentName) || [];
+    if (before) messages = messages.filter(m => m.timestamp < before);
+    messages = messages.slice(-limit);
+
+    res.writeHead(200, headers);
+    res.end(JSON.stringify({
+      agent: agentName,
+      count: messages.length,
+      messages,
+    }));
+    return;
+  }
+
+  // ── /api/conversations ──────────────────────────────────────────────
+  if (pathname === "/api/conversations") {
+    if (!checkToken()) return;
+    const convTeams = [];
+    for (const [name, data] of teams) {
+      const buf = teamBuffers.get(name) || [];
+      const last = buf.length ? buf[buf.length - 1] : null;
+      convTeams.push({
+        type: "team",
+        name,
+        members: [...data.agents],
+        max: MAX_PER_TEAM,
+        lastMessage: last ? { from: last.from, body: last.body, timestamp: last.timestamp } : null,
+        messageCount: buf.length,
+      });
+    }
+    const convDms = [];
+    for (const [agentName, buf] of dmBuffers) {
+      const last = buf.length ? buf[buf.length - 1] : null;
+      convDms.push({
+        type: "dm",
+        agent: agentName,
+        lastMessage: last ? { from: last.from, body: last.body, timestamp: last.timestamp } : null,
+        messageCount: buf.length,
+      });
+    }
+    res.writeHead(200, headers);
+    res.end(JSON.stringify({ teams: convTeams, dms: convDms }));
+    return;
+  }
+
+  // ── Dashboard (fallback) ─────────────────────────────────────────────
   res.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-cache, no-store, must-revalidate" });
   res.end(DASHBOARD_HTML);
 }
@@ -389,6 +516,47 @@ wss.on("connection", (ws, req) => {
     if (msg.type === "append" || msg.type === "write") {
       const agent = agents.get(agentName);
       const fwd = { ...msg, from: agent?.machine || agentName, agent: agentName };
+
+      // Buffer for message browser API
+      if (msg.type === "append" && msg.lines) {
+        const relPath = msg.path || "";
+        const ts = new Date().toISOString();
+
+        // Team messages: path starts with "teams/<name>/"
+        const teamMatch = relPath.match(/^teams\/([^/]+)\//);
+        if (teamMatch) {
+          const teamName = teamMatch[1];
+          for (const line of msg.lines) {
+            let parsed;
+            try { parsed = typeof line === "string" ? JSON.parse(line) : line; } catch { parsed = line; }
+            bufferPush(teamBuffers, teamName, {
+              from: agentName,
+              team: teamName,
+              body: parsed?.body || parsed?.text || (typeof parsed === "string" ? parsed : JSON.stringify(parsed)),
+              timestamp: parsed?.timestamp || ts,
+              machine: agent?.machine || agentName,
+            });
+          }
+        }
+
+        // DMs: path starts with "mailboxes/<name>."
+        const dmMatch = relPath.match(/^mailboxes\/([^./]+)/);
+        if (dmMatch) {
+          const recipient = dmMatch[1];
+          for (const line of msg.lines) {
+            let parsed;
+            try { parsed = typeof line === "string" ? JSON.parse(line) : line; } catch { parsed = line; }
+            bufferPush(dmBuffers, recipient, {
+              from: agentName,
+              to: recipient,
+              body: parsed?.body || parsed?.text || (typeof parsed === "string" ? parsed : JSON.stringify(parsed)),
+              timestamp: parsed?.timestamp || ts,
+              machine: agent?.machine || agentName,
+            });
+          }
+        }
+      }
+
       broadcast(fwd, ws);
       return;
     }
