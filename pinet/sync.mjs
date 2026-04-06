@@ -41,6 +41,7 @@ let remoteWriteTime = new Map();
 // File list cache — rescan directories every RESCAN_MS instead of every poll
 const RESCAN_MS = 30000;
 let cachedFiles = [];
+let cachedFilesSet = new Set();
 let lastRescanTime = 0;
 
 // =============================================================================
@@ -52,10 +53,12 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf-8"));
 }
 
-function readJsonl(filePath) {
+function readJsonl(filePath, offset) {
   if (!fs.existsSync(filePath)) return [];
   const content = fs.readFileSync(filePath, "utf-8").trim();
-  return content ? content.split("\n").filter((l) => l.trim()) : [];
+  if (!content) return [];
+  const lines = content.split("\n").filter((l) => l.trim());
+  return offset > 0 ? lines.slice(offset) : lines;
 }
 
 function lineCount(filePath) {
@@ -168,6 +171,7 @@ function reconnect() {
 function onConnected() {
   // Snapshot all current file line counts
   cachedFiles = findAllFiles(PINET_DIR);
+  cachedFilesSet = new Set(cachedFiles);
   lastRescanTime = Date.now();
   snapshotFiles = new Set(cachedFiles);
   for (const f of cachedFiles) {
@@ -198,6 +202,7 @@ function poll() {
   const now = Date.now();
   if (now - lastRescanTime >= RESCAN_MS) {
     cachedFiles = findAllFiles(PINET_DIR);
+    cachedFilesSet = new Set(cachedFiles);
     lastRescanTime = now;
   }
 
@@ -214,8 +219,7 @@ function poll() {
 
     if (currentLines > previousCount) {
       // New lines found!
-      const allLines = readJsonl(filePath);
-      const newLines = allLines.slice(previousCount);
+      const newLines = readJsonl(filePath, previousCount);
 
       // Only sync our own messages — other agents' messages come via relay
       const myAgent = AGENT_OVERRIDE || config.agent || config.machine;
@@ -268,8 +272,9 @@ function handleRemoteChange(msg) {
   ensureDir(path.dirname(filePath));
 
   // Track new files in cache immediately
-  if (!cachedFiles.includes(filePath)) {
+  if (!cachedFilesSet.has(filePath)) {
     cachedFiles.push(filePath);
+    cachedFilesSet.add(filePath);
   }
 
   try {

@@ -323,8 +323,8 @@ httpServer.listen(listenPort, () => {
 });
 
 const wss = USE_TLS
-  ? new WebSocket.Server({ server: httpServer })
-  : new WebSocket.Server({ port: PORT });
+  ? new WebSocket.Server({ server: httpServer, maxPayload: 64 * 1024 })
+  : new WebSocket.Server({ port: PORT, maxPayload: 64 * 1024 });
 
 wss.on("listening", () => {
   const wsScheme = USE_TLS ? "wss" : "ws";

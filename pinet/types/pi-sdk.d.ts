@@ -2,6 +2,7 @@
  * Type stubs for pi SDK modules.
  * These are provided at runtime by the pi host — declarations here are for type-checking only.
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 declare module "@mariozechner/pi-coding-agent" {
   export interface ExtensionAPI {

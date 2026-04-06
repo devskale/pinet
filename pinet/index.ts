@@ -667,7 +667,7 @@ function doMsg(args: string, ctx: CommandContext) {
     return;
   }
 
-  let targetSpec = args.slice(0, spaceIdx).trim().replace(/[,:;!]+$/, "");
+  const targetSpec = args.slice(0, spaceIdx).trim().replace(/[,:;!]+$/, "");
   const body = args.slice(spaceIdx + 1).trim();
 
   if (!targetSpec || !body) {

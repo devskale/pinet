@@ -33,12 +33,6 @@ export const DELIVERY_MODES: DeliveryMode[] = ["interrupt", "digest", "silent"];
 // Interfaces
 // =============================================================================
 
-/** An agent's identity — append-only log entry */
-export interface Identity {
-  name: string;
-  created: string;
-}
-
 /** A personal (DM) message between two agents */
 export interface PersonalMessage {
   id: string;

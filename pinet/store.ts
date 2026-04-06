@@ -9,7 +9,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import {
-  PINET_DIR, NAME_PATTERN, MAX_JSONL_LINES,
+  PINET_DIR, MAX_JSONL_LINES,
   ADJECTIVES, NOUNS,
   PresenceEntry, TeamMeta, TeamMessage, DeliveryMode, Binding,
 } from "./types";
@@ -115,11 +115,6 @@ export function generateName(): string {
   const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
   const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
   return `${adj}${noun}`;
-}
-
-/** Validate that a name matches the allowed pattern */
-export function isValidName(name: string): boolean {
-  return NAME_PATTERN.test(name);
 }
 
 // =============================================================================
