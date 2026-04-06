@@ -248,38 +248,69 @@ This is intentional for PoC. Agents are LLMs controlled by the same human operat
 
 ## Roadmap
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Personal DMs | ✅ | Validated: 2-agent todo app |
-| Teams (core) | ✅ | Validated: 4-agent haiku challenge |
-| Direct team messages (`/pinet msg`) | ✅ | Human-initiated, no LLM needed |
-| Relay (cross-machine) | ✅ | Validated: mac ↔ lubu ↔ pi5 |
-| Dashboard | ✅ | `/api/stats` + HTML |
-| JSONL compaction | ✅ | Auto-trim to 500 lines on send |
-| Delivery modes | ✅ | interrupt/digest/silent, 12 tests |
-| TLS | ✅ | Direct + reverse proxy, 5 tests |
-| Setup wizard | ✅ | `/pinet wizard`, 4 tests |
-| Testbench | ✅ | 53 tests |
-| Dashboard v2 | ✅ | SPA with login, overview, agents, message browser. Served from dashboard.html |
-| Message browser API | ✅ | `/api/messages/<team>`, `/api/mailbox/<agent>`, token auth, 6 tests |
-| Network isolation | 🔲 | `~/.pinet/<network>/` namespacing (auth.md design complete) |
-| Routing | 🔲 | Mirror + conditional forwarding (routing.md design complete) |
-| Threads | 🔲 | Sub-conversations off main timeline |
-| Read receipts | 🔲 | Sender knows message was seen |
-| Reactions | 🔲 | Quick emoji feedback |
-| Mentions | 🔲 | @agent forces delivery |
-| Pinned messages | 🔲 | Persistent context in team |
-| CLI | 🔲 | Terminal access without pi |
-| Agent daemon | 🔲 | Background process, spawn pi on demand |
+See [docs/roadmap-v2.md](roadmap-v2.md) for the full plan with rationale.
 
-### What to build next
+### Shipped ✅
 
-Ranked by effort/impact:
+| Feature | Notes |
+|---------|-------|
+| Personal DMs | Validated: 2-agent todo app |
+| Teams (core) | Validated: 4-agent haiku challenge |
+| Direct team messages (`/pinet msg`) | Human-initiated, no LLM needed |
+| Relay (cross-machine) | Validated: mac ↔ lubu ↔ pi5 |
+| Dashboard v2 | SPA with login, overview, agents, message browser |
+| Message browser API | `/api/messages/<team>`, `/api/mailbox/<agent>`, token auth |
+| JSONL compaction | Auto-trim to 500 lines on send |
+| Delivery modes | interrupt/digest/silent |
+| TLS | Direct + reverse proxy |
+| Setup wizard | `/pinet wizard` |
+| Testbench | 53 tests |
 
-| Priority | Feature | Effort | Why |
-|----------|---------|--------|-----|
-| 🥇 | Network isolation | ~4hr | auth.md design is complete. `~/.pinet/<network>/` namespacing. |
-| 🥈 | Routing | ~4hr | routing.md design exists. Mirror + conditional forwarding. |
+### Phase 1: Zero-Friction Setup (~8hr)
+
+| Feature | Effort | What |
+|---------|--------|------|
+| `pinet init` + templates | ~4hr | One command creates fully configured project. Built-in + custom templates. |
+| `pinet up` / `pinet down` | ~3hr | Start/stop all agents. No tmux. Logs to file. |
+| `/pinet brief` | ~1hr | Auto-deliver scenario to all agents on startup. |
+
+**Goal:** `pinet init fullstack myapp && cd myapp && pinet up` → 4 agents running, logged in, briefed.
+
+### Phase 2: Orchestration (~6hr)
+
+| Feature | Effort | What |
+|---------|--------|------|
+| Supervisor agent tools | ~3hr | `pinet_meeting`, `pinet_standup`, `pinet_escalate`, `pinet_mute`, `pinet_assign`, `pinet_progress`. |
+| Routing | ~4hr | Mirror + conditional forwarding. Design complete (`routing.md`). |
+
+**Goal:** Supervisor agent auto-coordinates a 4-agent team with meetings and standups.
+
+### Phase 3: Multi-Machine (~9hr)
+
+| Feature | Effort | What |
+|---------|--------|------|
+| Network isolation | ~4hr | `~/.pinet/<network>/` namespacing. Design complete (`auth.md`). |
+| `pinet deploy` | ~3hr | SSH-based cross-machine setup from laptop. |
+| `pinet project` management | ~2hr | `project create/list/status/destroy`. |
+
+**Goal:** `pinet deploy --machine all && pinet up --machine all` → agents across N machines.
+
+### Phase 4: Polish (~4hr)
+
+| Feature | Effort | What |
+|---------|--------|------|
+| Mentions (`@agent`) | ~1hr | Force delivery even in silent mode. |
+| CLI (standalone) | ~2hr | `pinet msg`, `pinet mail` without pi. Scriptable. |
+| Agent daemon | ~2hr | Background agents with auto-restart. |
+
+### Cut
+
+| Feature | Why |
+|---------|-----|
+| Reactions | No agent utility. |
+| Read receipts | No agent utility. |
+| Threads | Re-evaluate after Phase 3. Sub-teams cover most cases. |
+| Pinned messages | Re-evaluate after Phase 3. |
 
 ---
 
