@@ -26,9 +26,9 @@ import {
 } from "./store";
 import { NAME_PATTERN, TeamMessage, TeamMeta, DELIVERY_MODES, DeliveryMode } from "./types";
 import {
-  startPersonalWatcher, startTeamWatcher,
-  resetWatchers, getPersonalLineCount, getTeamLineCount,
-  bumpTeamLineCount, setWatcherIdentity,
+  initPersonalPointer, initTeamPointer,
+  resetPointers, getPersonalLineCount, getTeamLineCount,
+  bumpTeamLineCount, setPointerIdentity,
 } from "./read-state";
 import {
   registerPersonalTools, registerTeamTools,
@@ -54,6 +54,7 @@ let myTeams: string[] = [];
 let syncProcess: child_process.ChildProcess | null = null;
 let piRef: ExtensionAPI | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let presenceSweeperTimer: ReturnType<typeof setInterval> | null = null;
 
 // =============================================================================
 // Parse "Name@team1,team2"
@@ -85,8 +86,7 @@ function parseLoginArg(arg: string): { name: string; teams: string[]; teamRoles:
 // =============================================================================
 
 function teamUnread(team: string): number {
-  return readTeamMessages(team)
-    .slice(getTeamLineCount(team))
+  return readTeamMessages(team, getTeamLineCount(team))
     .filter((m: TeamMessage) => m.from !== myName).length;
 }
 
@@ -130,13 +130,13 @@ function doLogin(pi: ExtensionAPI, name: string, teams: string[], teamRoles: Rec
 
   // Init subsystems
   setToolIdentity(name, teams);
-  setWatcherIdentity(name);
-  startPersonalWatcher(pi);
+  setPointerIdentity(name);
+  initPersonalPointer();
   registerPersonalTools(pi);
 
   for (const team of teams) {
     joinTeam(team, name, teamRoles[team]);
-    startTeamWatcher(pi, team);
+    initTeamPointer(team);
   }
   if (teams.length > 0) registerTeamTools(pi);
 
@@ -145,8 +145,7 @@ function doLogin(pi: ExtensionAPI, name: string, teams: string[], teamRoles: Rec
 
   // Notify user
   const backlog =
-    readJsonl(pinetPath("mailboxes", `${name}.mailbox.jsonl`)).length -
-    getPersonalLineCount();
+    readJsonl(pinetPath("mailboxes", `${name}.mailbox.jsonl`), getPersonalLineCount()).length;
 
   const lines = [`${name} online`];
   if (teams.length > 0) lines.push(teams.map((t) => `#${t}`).join(", "));
@@ -159,6 +158,9 @@ function doLogin(pi: ExtensionAPI, name: string, teams: string[], teamRoles: Rec
     if (myName) writePresence(myName, "online");
     else if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
   }, 30_000);
+
+  // Presence sweeper — clean up stale entries every 60s
+  presenceSweeperTimer = setInterval(() => { readAllPresence(); }, 60_000);
 }
 
 // =============================================================================
@@ -173,7 +175,8 @@ function doLogout(ctx: CommandContext) {
 
   writePresence(myName, "offline");
   if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
-  resetWatchers();
+  if (presenceSweeperTimer) { clearInterval(presenceSweeperTimer); presenceSweeperTimer = null; }
+  resetPointers();
   resetToolIdentity();
   stopSyncDaemon();
 
@@ -198,8 +201,7 @@ function showStatus(ctx: CommandContext) {
     (p) => p.status === "online" && p.name !== myName
   );
   const dmUnread =
-    readJsonl(pinetPath("mailboxes", `${myName}.mailbox.jsonl`)).length -
-    getPersonalLineCount();
+    readJsonl(pinetPath("mailboxes", `${myName}.mailbox.jsonl`), getPersonalLineCount()).length;
 
   const lines = [`${myName}`];
   if (myTeams.length > 0) {
@@ -234,10 +236,12 @@ function startSyncDaemon(ctx: CommandContext) {
     return;
   }
 
+  if (!myName) return; // no identity yet — nothing to sync
+
   syncProcess = child_process.fork(syncPath, [], {
     stdio: ["pipe", "pipe", "pipe", "ipc"],
     detached: false,
-    env: { ...process.env, PINET_AGENT_NAME: myName || "" },
+    env: { ...process.env, PINET_AGENT_NAME: myName },
   });
 
   syncProcess.on("error", (err) => {
@@ -316,16 +320,19 @@ function doWizard(args: string, ctx: CommandContext) {
         "PiNet Wizard — one command to set up everything",
         "",
         "Create a team (you're the first):",
-        "  /pinet wizard <url> <token> [machine] <team>",
+        "  /pinet wizard <url> <token> <machine> <team>",
         "",
         "Join a team (someone gave you the token):",
-        "  /pinet wizard <url> <token> [machine] <team:token>",
+        "  /pinet wizard <url> <token> <machine> <team:token>",
+        "  /pinet wizard <url> <token> <team:token>",
+        "",
+        "Relay only (no team):",
+        "  /pinet wizard <url> <token> <machine>",
+        "  /pinet wizard <url> <token>",
         "",
         "Examples:",
         "  /pinet wizard wss://relay:7654 secret mac build",
         "  /pinet wizard wss://relay:7654 secret pi5 build:a1b2c3d4e5f6a1b2",
-        "",
-        "No team yet? Just set up the relay:",
         "  /pinet wizard wss://relay:7654 secret mac",
       ].join("\n"),
       "info"
@@ -345,13 +352,14 @@ function doWizard(args: string, ctx: CommandContext) {
     machine = maybeMachine;
     teamArg = maybeTeam;
   } else if (maybeMachine !== undefined) {
-    // 3 args: could be url token machine OR url token team[:token]
-    if (maybeMachine.includes(":") || NAME_PATTERN.test(maybeMachine.split(":")[0])) {
-      // Looks like a team spec (has colon for token, or matches name pattern)
+    // 3 args: ambiguous — resolve by colon
+    //   "build:a1b2c3" → team:token (join), auto-detect machine
+    //   "mac"           → machine name, relay only
+    // To create a team without specifying machine, use 4 args.
+    if (maybeMachine.includes(":")) {
       machine = os.hostname().split(".")[0] || "agent";
       teamArg = maybeMachine;
     } else {
-      // Probably a machine name
       machine = maybeMachine;
     }
   } else {
@@ -597,7 +605,7 @@ function doWhoami(ctx: CommandContext) {
   }
   const teams = myTeams.length > 0 ? myTeams.map(t => {
     const meta = readJson<TeamMeta>(pinetPath("teams", t, "meta.json"));
-    const role = meta?.roles?.[myName] || "member";
+    const role = meta?.roles?.[myName!] || "member";
     const delivery = meta?.delivery ?? "interrupt";
     return `#${t} (${role}, ${delivery})`;
   }).join(", ") : "none";
@@ -649,32 +657,59 @@ function doMsg(args: string, ctx: CommandContext) {
     return;
   }
   if (!args) {
-    ctx.ui?.notify?.("Usage: /pinet msg <agent> <message>", "warning");
+    ctx.ui?.notify?.("Usage: /pinet msg <agent>[@<team>] <message>", "warning");
     return;
   }
 
   const spaceIdx = args.indexOf(" ");
   if (spaceIdx === -1) {
-    ctx.ui?.notify?.("Usage: /pinet msg <agent> <message>", "warning");
+    ctx.ui?.notify?.("Usage: /pinet msg <agent>[@<team>] <message>", "warning");
     return;
   }
 
-  const target = args.slice(0, spaceIdx).trim().replace(/[,:;!]+$/, "");
+  let targetSpec = args.slice(0, spaceIdx).trim().replace(/[,:;!]+$/, "");
   const body = args.slice(spaceIdx + 1).trim();
 
-  if (!target || !body) {
-    ctx.ui?.notify?.("Usage: /pinet msg <agent> <message>", "warning");
+  if (!targetSpec || !body) {
+    ctx.ui?.notify?.("Usage: /pinet msg <agent>[@<team>] <message>", "warning");
     return;
   }
 
-  // Find a shared team with this agent
-  const team = myTeams.find(t => {
+  // Parse optional @team suffix: "BackendDev@build" → target=BackendDev, teamHint=build
+  let target = targetSpec;
+  let teamHint: string | undefined;
+  const atIdx = targetSpec.lastIndexOf("@");
+  if (atIdx !== -1) {
+    target = targetSpec.slice(0, atIdx);
+    teamHint = targetSpec.slice(atIdx + 1);
+  }
+
+  // Find shared team with this agent
+  const sharedTeams = myTeams.filter(t => {
     const meta = readJson<TeamMeta>(pinetPath("teams", t, "meta.json"));
     return meta?.members?.includes(target);
   });
 
-  if (!team) {
+  if (sharedTeams.length === 0) {
     ctx.ui?.notify?.(`No shared team with "${target}". Both must be in the same team.`, "warning");
+    return;
+  }
+
+  let team: string;
+  if (teamHint) {
+    if (!sharedTeams.includes(teamHint)) {
+      ctx.ui?.notify?.(`No shared team #${teamHint} with "${target}". Shared: ${sharedTeams.map(t => `#${t}`).join(", ")}.`, "warning");
+      return;
+    }
+    team = teamHint;
+  } else if (sharedTeams.length === 1) {
+    team = sharedTeams[0];
+  } else {
+    ctx.ui?.notify?.(
+      `Ambiguous — ${sharedTeams.length} shared teams with "${target}": ${sharedTeams.map(t => `#${t}`).join(", ")}. ` +
+      `Use /pinet msg ${target}@<team> <message>`,
+      "warning"
+    );
     return;
   }
 
@@ -804,8 +839,9 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_shutdown", () => {
     if (myName) {
       writePresence(myName, "offline");
-      resetWatchers();
+      resetPointers();
     }
+    if (presenceSweeperTimer) { clearInterval(presenceSweeperTimer); presenceSweeperTimer = null; }
     stopSyncDaemon();
   });
 }

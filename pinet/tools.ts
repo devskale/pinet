@@ -82,8 +82,7 @@ export function registerPersonalTools(pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute() {
       if (!myName) return textReply("Not logged in.");
-      const all = readJsonl<PersonalMessage>(pinetPath("mailboxes", `${myName}.mailbox.jsonl`));
-      const messages = all.slice(getPersonalLineCount());
+      const messages = readJsonl<PersonalMessage>(pinetPath("mailboxes", `${myName}.mailbox.jsonl`), getPersonalLineCount());
       if (messages.length === 0) return textReply("No DMs.");
       return textReply(messages.map((m) => `receive from ${m.from}->${myName}: ${m.body}`).join("\n"));
     },
@@ -154,8 +153,7 @@ export function registerTeamTools(pi: ExtensionAPI) {
       if (!myName) return textReply("Not logged in.");
       const { team } = params as { team: string };
       if (!myTeams.includes(team)) return textReply(`Not in #${team}.`);
-      const all = readTeamMessages(team);
-      const messages = all.slice(getTeamLineCount(team));
+      const messages = readTeamMessages(team, getTeamLineCount(team));
       if (messages.length === 0) return textReply(`No unread in #${team}.`);
       return textReply(messages.map((m) => `receive from ${m.from}@${team}: ${m.body}`).join("\n"));
     },
@@ -174,7 +172,7 @@ export function registerTeamTools(pi: ExtensionAPI) {
           const meta = readTeamMeta(name);
           const members = meta?.members.join(", ") ?? "?";
           const delivery = meta?.delivery ?? "interrupt";
-          const unread = readTeamMessages(name).slice(getTeamLineCount(name)).filter((m: TeamMessage) => m.from !== myName).length;
+          const unread = readTeamMessages(name, getTeamLineCount(name)).filter((m: TeamMessage) => m.from !== myName).length;
           return `#${name} [${members}] ${delivery}${unread > 0 ? ` ${unread} unread` : ""}`;
         }).join("\n")
       );

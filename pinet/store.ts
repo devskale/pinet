@@ -11,7 +11,7 @@ import * as crypto from "node:crypto";
 import {
   PINET_DIR, NAME_PATTERN, MAX_JSONL_LINES,
   ADJECTIVES, NOUNS,
-  PresenceEntry, TeamMeta, DeliveryMode, Binding,
+  PresenceEntry, TeamMeta, TeamMessage, DeliveryMode, Binding,
 } from "./types";
 
 // =============================================================================
@@ -48,14 +48,17 @@ export function readFile(filePath: string): string {
 // JSONL
 // =============================================================================
 
-/** Read all entries from a JSONL file, skipping malformed lines */
-export function readJsonl<T = unknown>(filePath: string): T[] {
+/** Read entries from a JSONL file, skipping malformed lines.
+ *  If `offset` is given, skips the first N lines at the string level
+ *  (avoids parsing lines that will be discarded). */
+export function readJsonl<T = unknown>(filePath: string, offset: number = 0): T[] {
   if (!exists(filePath)) return [];
   const content = readFile(filePath).trim();
   if (!content) return [];
-  return content
-    .split("\n")
-    .filter((line) => line.trim())
+  const lines = content.split("\n").filter((line) => line.trim());
+  const sliced = offset > 0 ? lines.slice(offset) : lines;
+  if (sliced.length === 0) return [];
+  return sliced
     .map((line) => { try { return JSON.parse(line); } catch { return null; } })
     .filter((entry): entry is T => entry !== null);
 }
@@ -74,7 +77,7 @@ export function compactJsonl(filePath: string, maxLines: number = MAX_JSONL_LINE
   const lines = content.split("\n").filter((l) => l.trim());
   if (lines.length <= maxLines) return 0;
   const kept = lines.slice(-maxLines);
-  const tmp = filePath + ".tmp." + process.pid;
+  const tmp = filePath + ".tmp." + crypto.randomUUID();
   fs.writeFileSync(tmp, kept.join("\n") + "\n");
   fs.renameSync(tmp, filePath);
   return lines.length - kept.length;
@@ -83,7 +86,7 @@ export function compactJsonl(filePath: string, maxLines: number = MAX_JSONL_LINE
 /** Write a JSON file (creates parent dirs) */
 export function writeJson(filePath: string, obj: unknown) {
   ensureDir(path.dirname(filePath));
-  const tmp = filePath + ".tmp." + process.pid;
+  const tmp = filePath + ".tmp." + crypto.randomUUID();
   fs.writeFileSync(tmp, JSON.stringify(obj, null, 2));
   fs.renameSync(tmp, filePath);
 }
@@ -213,9 +216,9 @@ export function joinTeam(teamName: string, agentName: string, role?: string): bo
   return true;
 }
 
-/** Read all messages from a team's timeline */
-export function readTeamMessages(teamName: string) {
-  return readJsonl(pinetPath("teams", teamName, "messages.jsonl"));
+/** Read messages from a team's timeline, optionally skipping already-read lines */
+export function readTeamMessages(teamName: string, offset: number = 0): TeamMessage[] {
+  return readJsonl(pinetPath("teams", teamName, "messages.jsonl"), offset);
 }
 
 // =============================================================================

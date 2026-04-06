@@ -16,6 +16,11 @@ const RELAY_CONFIG = path.join(PINET_DIR, "relay.json");
 // Allow override: PINET_AGENT_NAME=BackendDev node sync.js
 const AGENT_OVERRIDE = process.env.PINET_AGENT_NAME || null;
 
+if (!AGENT_OVERRIDE) {
+  console.error("PINET_AGENT_NAME env var required. Started by the extension — not standalone.");
+  process.exit(1);
+}
+
 // =============================================================================
 // State
 // =============================================================================
@@ -32,6 +37,11 @@ let snapshotFiles = new Set();
 
 // Timestamp of last remote write per file (to skip syncing our own writes)
 let remoteWriteTime = new Map();
+
+// File list cache — rescan directories every RESCAN_MS instead of every poll
+const RESCAN_MS = 30000;
+let cachedFiles = [];
+let lastRescanTime = 0;
 
 // =============================================================================
 // Helpers
@@ -157,12 +167,13 @@ function reconnect() {
 
 function onConnected() {
   // Snapshot all current file line counts
-  const files = findAllFiles(PINET_DIR);
-  snapshotFiles = new Set(files);
-  for (const f of files) {
+  cachedFiles = findAllFiles(PINET_DIR);
+  lastRescanTime = Date.now();
+  snapshotFiles = new Set(cachedFiles);
+  for (const f of cachedFiles) {
     fileLineCounts.set(f, lineCount(f));
   }
-  console.log(`Snapshot: ${files.length} files tracked`);
+  console.log(`Snapshot: ${cachedFiles.length} files tracked`);
 
   // Start polling
   startPolling();
@@ -183,9 +194,14 @@ function startPolling() {
 function poll() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-  const files = findAllFiles(PINET_DIR);
+  // Rescan file list periodically (new teams, new mailboxes)
+  const now = Date.now();
+  if (now - lastRescanTime >= RESCAN_MS) {
+    cachedFiles = findAllFiles(PINET_DIR);
+    lastRescanTime = now;
+  }
 
-  for (const filePath of files) {
+  for (const filePath of cachedFiles) {
     // Skip if we just wrote this file from a remote change (within last 3 seconds)
     const lastRemote = remoteWriteTime.get(filePath) || 0;
     if (Date.now() - lastRemote < 3000) continue;
@@ -250,6 +266,11 @@ function handleRemoteChange(msg) {
 
   const filePath = path.join(PINET_DIR, msg.path);
   ensureDir(path.dirname(filePath));
+
+  // Track new files in cache immediately
+  if (!cachedFiles.includes(filePath)) {
+    cachedFiles.push(filePath);
+  }
 
   try {
     if (msg.type === "append" && msg.lines) {

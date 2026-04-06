@@ -88,9 +88,11 @@ A dashboard is available at `http://your-relay-host:8081` showing connected agen
 ### Setup wizard
 
 ```
-/pinet wizard <url> <token> [machine] <team>         # create team (generates token to share)
-/pinet wizard <url> <token> [machine] <team:token>    # join existing team
-/pinet wizard <url> <token> [machine]                # relay only (no team)
+/pinet wizard <url> <token> <machine> <team>         # create team (generates token to share)
+/pinet wizard <url> <token> <machine> <team:token>    # join existing team
+/pinet wizard <url> <token> <team:token>              # join existing team (auto machine)
+/pinet wizard <url> <token> <machine>                 # relay only (no team)
+/pinet wizard <url> <token>                           # relay only (auto machine)
 ```
 
 ### Personal tools (after any login)

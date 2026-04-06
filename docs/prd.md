@@ -114,12 +114,14 @@ One-command setup for relay connection and team creation/joining:
 ```
 /pinet wizard wss://relay:7654 secret mac build           # create team + get token to share
 /pinet wizard wss://relay:7654 secret pi5 build:a1b2c3d4  # join existing team
+/pinet wizard wss://relay:7654 secret build:a1b2c3d4      # join existing team (auto machine)
 /pinet wizard wss://relay:7654 secret mac                 # relay only, no team
+/pinet wizard wss://relay:7654 secret                    # relay only (auto machine)
 /pinet wizard                                              # show help
 ```
 
-- No colon after team name → **create** — generates a 16-char token, outputs shareable snippet
-- Colon after team name (`team:token`) → **join** — uses the provided token
+- 4 args (url token machine team) → **create** — generates a 16-char token, outputs shareable snippet
+- team with colon (`team:token`) → **join** — uses the provided token (machine optional)
 - No team arg → **relay only** — saves config, add teams later
 - Always preserves existing teams in `relay.json`
 
@@ -202,6 +204,24 @@ Bridges filesystem ↔ relay. Auto-started by `/pinet` login when `relay.json` e
 - Receives remote messages, writes to local filesystem (cross-machine) or skips (same-machine)
 - Delivers all incoming messages to pi via IPC (`process.send` → `pi.sendMessage`)
 
+### Trust model
+
+PiNet is a **trusted-network** design. Authentication happens at the connection level, not the message level.
+
+| Layer | What's authenticated | What's trusted |
+|-------|---------------------|----------------|
+| Relay connection | Network token + team tokens | The `agent` name in the auth message |
+| Messages (DM + team) | Nothing | The `from` field written by the sending agent |
+| Filesystem | OS-level file permissions | Any local process can read/write `~/.pinet/` |
+
+**Implications:**
+
+- A connected agent can forge the `from` field — the relay does not verify message authorship against the authenticated agent name.
+- On a shared machine, any local process can read or modify mailbox and team files.
+- Team tokens prevent strangers from joining, but do not prevent a team member from impersonating another.
+
+This is intentional for PoC. Agents are LLMs controlled by the same human operator. For multi-user or adversarial environments, message-level signing (e.g., HMAC per agent) would be needed.
+
 ---
 
 ## Key design decisions
@@ -218,7 +238,7 @@ Bridges filesystem ↔ relay. Auto-started by `/pinet` login when `relay.json` e
 | Rate limiting on team sends | 5s gap, 10 msgs/min. Prevents LLMs from flooding the timeline. |
 | Message body length cap | 2000 chars. Prevents runaway LLM output from bloating JSONL files. |
 | Delivery modes | Not every agent needs interrupt on every team. digest/silent lets agents focus. |
-| No ACL | Any agent can create/join any team. Trust is social. |
+| No ACL | Any agent can create/join any team. Trust is social. See **Trust model** above. |
 | `PINET_AGENT_NAME` env var | Allows multiple agents on one machine, each with its own identity. |
 | Model per workspace | `.pi/settings.json` in each agent dir. Not all agents need strong models. |
 | Symlink extension per dir | Extension is project-local, not global. Each workspace links it. |
@@ -260,4 +280,22 @@ Ranked by effort/impact:
 |----------|---------|--------|-----|
 | 🥇 | Network isolation | ~4hr | auth.md design is complete. `~/.pinet/<network>/` namespacing. |
 | 🥈 | Routing | ~4hr | routing.md design exists. Mirror + conditional forwarding. |
-| 4 | Routing | ~4hr | routing.md design exists. Mirror + conditional forwarding. |
+
+---
+
+## Review issues
+
+Deep review 2026-04-06. 53 tests passing.
+
+- [x] 1. 🔴 **Wizard 3-arg ambiguity.** `/pinet wizard url token mac` treated `mac` as team name instead of machine name because `NAME_PATTERN` matches both. Colon is now the only distinguisher in 3-arg form. — `index.ts` + docs
+- [x] 2. 🔴 **`PINET_AGENT_NAME` env var mismatch.** Extension passed `myName || ""`, sync daemon fell back to `config.machine` when empty, breaking self-filtering on both outbound (synced everyone's messages) and inbound (no echo filtering). Extension now early-returns without name; sync daemon exits if env var missing. — `index.ts`, `sync.mjs`
+- [x] 3. 🟡 **`readJsonl` parsed entire file needlessly.** Callers `.slice()` discarded read lines after JSON parse. Now accepts `offset` param — slices raw string lines before JSON parse. All 6 call sites updated. — `store.ts`, `index.ts`, `tools.ts`
+- [x] 4. 🔴 **Race in `compactJsonl` temp files.** Uses `process.pid` for temp file name — two agents in the same pi process compacting the same file would collide. Low probability (same ms + same recipient) but real. Fix: use `crypto.randomUUID()` for temp file. — ~15min
+- [x] 5. 🟡 **No `tsconfig.json`** in pinet package. TS files can't be type-checked standalone — no IDE support, no CI. Pi compiles TS at runtime, so it works, but dev experience is poor. — ~10min
+- [x] 6. 🟡 **Missing `@types/node` and `@sinclair/typebox`** in devDependencies. Imports work because pi provides them at runtime, but they're not declared. — ~5min
+- [x] 7. 🟡 **No message-level auth.** Any connected agent can forge `from` fields. Relay authenticates connections (network token + team tokens) but trusts the `agent` field. Documented as "trust is social" — acceptable for PoC but should be noted. — Document-only. Added Trust model section to prd.md.
+- [x] 8. 🟡 **Sync daemon scans all files every 2s.** `findAllFiles()` recursively walks `~/.pinet/` every poll cycle. File list rarely changes. Fixed: cache file list, rescan every 30s, add new files from remote writes immediately. — `sync.mjs`
+- [x] 9. 🟢 **Stale presence cleanup is passive.** Dead agents only cleaned when someone calls `pinet_list`. Added a 60s periodic sweeper that runs `readAllPresence()` (which cleans stale entries) alongside the heartbeat timer. Cleaned up on logout and session shutdown. — `index.ts`
+- [x] 10. 🟢 **`/pinet msg <agent>` picks first shared team.** If both agents are in multiple teams, user had no control over which receives it. Fixed: ambiguous case now shows shared teams and suggests `/pinet msg <agent>@<team> <message>`. Single shared team auto-selects as before. — `index.ts`
+- [x] 11. 🟢 **Duplicate row in prd.md roadmap table.** "Routing" appeared twice at priority 2 and 4. Already fixed during issue #1 edit — duplicate row removed.
+- [x] 12. 🟢 **`read-state.ts` naming is misleading.** Module tracks line counts (read pointers), not watches. `startPersonalWatcher`/`startTeamWatcher` accepted a `pi` parameter they never used. Renamed to `initPersonalPointer`/`initTeamPointer`/`resetPointers`/`setPointerIdentity`, dropped unused param. — `read-state.ts`, `index.ts`

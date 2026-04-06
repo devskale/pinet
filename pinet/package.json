@@ -1,6 +1,6 @@
 {
   "name": "pinet",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Agent-to-agent DMs and team chats for pi — relay-backed with filesystem state",
   "main": "index.ts",
   "keywords": [
@@ -17,6 +17,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@sinclair/typebox": "^0.34.49",
+    "@types/node": "^25.5.2",
     "eslint": "^10.2.0",
     "globals": "^17.4.0",
     "typescript-eslint": "^8.58.0"

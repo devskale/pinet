@@ -22,7 +22,7 @@ const teamLineCounts: Map<string, number> = new Map();
 // Public API
 // =============================================================================
 
-export function setWatcherIdentity(name: string) {
+export function setPointerIdentity(name: string) {
   myName = name;
   // Snapshot current line counts
   if (myName) {
@@ -31,7 +31,7 @@ export function setWatcherIdentity(name: string) {
   }
 }
 
-export function resetWatchers() {
+export function resetPointers() {
   myName = null;
   personalLineCount = 0;
   teamLineCounts.clear();
@@ -62,13 +62,13 @@ export function adjustTeamPointer(team: string, removed: number) {
 }
 
 /** Snapshot team line count on join */
-export function startTeamWatcher(_pi: unknown, teamName: string) {
+export function initTeamPointer(teamName: string) {
   const filePath = pinetPath("teams", teamName, "messages.jsonl");
   teamLineCounts.set(teamName, countLines(filePath));
 }
 
 /** Snapshot personal mailbox on login */
-export function startPersonalWatcher(_pi: unknown) {
+export function initPersonalPointer() {
   if (!myName) return;
   const filePath = pinetPath("mailboxes", `${myName}.mailbox.jsonl`);
   personalLineCount = countLines(filePath);
