@@ -25,3 +25,4 @@ relay-token
 # Validation scripts (run manually)
 test-hybrid-auth.js
 pi-mono
+testsetup.md

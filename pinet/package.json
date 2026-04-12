@@ -15,6 +15,9 @@
   "dependencies": {
     "ws": "^8.20.0"
   },
+  "scripts": {
+    "dev": "PINET_DEMO=1 node --watch relay.js --port 7654 --token-file relay-token"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@sinclair/typebox": "^0.34.49",

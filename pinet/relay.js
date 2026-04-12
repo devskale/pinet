@@ -47,6 +47,8 @@
 const { parseArgs } = require("node:util");
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
+const os = require("node:os");
 
 // =============================================================================
 // CLI
@@ -143,11 +145,37 @@ const teamBuffers = new Map();
 /** agentName → Message[] (max MAX_BUFFER_PER_CHANNEL) — DM mailbox */
 const dmBuffers = new Map();
 
+/** projectName → { name, agents, teams, relayUrl, machine, created } */
+const projects = new Map();
+
 function bufferPush(map, key, msg) {
   if (!map.has(key)) map.set(key, []);
   const buf = map.get(key);
   buf.push(msg);
   if (buf.length > MAX_BUFFER_PER_CHANNEL) buf.splice(0, buf.length - MAX_BUFFER_PER_CHANNEL);
+}
+
+// =============================================================================
+// Seed demo project
+// =============================================================================
+
+const DEMO_PROJECT = process.env.PINET_DEMO === '1';
+if (DEMO_PROJECT && !projects.has('demo')) {
+  const demoToken = crypto.randomBytes(8).toString('hex');
+  projects.set('demo', {
+    name: 'demo',
+    agents: [
+      { name: 'Master', model: 'claude-sonnet-4', role: 'Coordinator — decomposes tasks and manages the team', teams: ['build'], machine: '' },
+      { name: 'FrontendDev', model: '', role: 'Frontend developer', teams: ['build'], machine: '' },
+      { name: 'BackendDev', model: '', role: 'Backend developer', teams: ['build'], machine: '' },
+      { name: 'Tester', model: 'glm-4.7', role: 'QA — validates features and reports bugs', teams: ['build'], machine: '' },
+    ],
+    teams: [{ name: 'build', token: demoToken }],
+    relayUrl: '',
+    machine: '',
+    created: new Date().toISOString(),
+  });
+  console.log('Demo project seeded (team token: ' + demoToken + ')');
 }
 
 // =============================================================================
@@ -295,9 +323,119 @@ function handleHttpRequest(req, res) {
     return;
   }
 
+  // ── /api/projects — list all projects ───────────────────────────────
+  if (pathname === '/api/projects' && req.method === 'GET') {
+    if (!checkToken()) return;
+    const list = [...projects.entries()].map(([name, data]) => ({
+      name,
+      agents: data.agents,
+      teams: data.teams,
+      relayUrl: data.relayUrl,
+      machine: data.machine,
+      created: data.created,
+    }));
+    res.writeHead(200, headers);
+    res.end(JSON.stringify({ projects: list }));
+    return;
+  }
+
+  // ── POST /api/projects — create a project ───────────────────────────
+  if (pathname === '/api/projects' && req.method === 'POST') {
+    if (!checkToken()) return;
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const p = JSON.parse(body);
+        const name = (p.name || '').trim().replace(/\s+/g, '-').replace(/[^a-zA-Z0-9_-]/g, '');
+        if (!name) { res.writeHead(400, headers); res.end(JSON.stringify({ error: 'name required' })); return; }
+        if (projects.has(name)) { res.writeHead(409, headers); res.end(JSON.stringify({ error: 'project already exists' })); return; }
+
+        const project = {
+          name,
+          agents: (p.agents || []).map(a => ({
+            name: a.name || 'Agent',
+            model: a.model || '',
+            role: a.role || '',
+            teams: a.teams || [],
+            machine: a.machine || '',
+          })),
+          teams: (p.teams || []).map(t => ({
+            name: t.name || 'team',
+            token: t.token || crypto.randomBytes(8).toString('hex'),
+          })),
+          relayUrl: p.relayUrl || '',
+          machine: p.machine || '',
+          created: new Date().toISOString(),
+        };
+        projects.set(name, project);
+        res.writeHead(201, headers);
+        res.end(JSON.stringify(project));
+      } catch (e) {
+        res.writeHead(400, headers);
+        res.end(JSON.stringify({ error: 'invalid json' }));
+      }
+    });
+    return;
+  }
+
+  // ── DELETE /api/projects/<name> ─────────────────────────────────────
+  const deleteProjectMatch = pathname.match(/^\/api\/projects\/([^/]+)$/);
+  if (deleteProjectMatch && req.method === 'DELETE') {
+    if (!checkToken()) return;
+    const pName = decodeURIComponent(deleteProjectMatch[1]);
+    if (!projects.has(pName)) { res.writeHead(404, headers); res.end(JSON.stringify({ error: 'not found' })); return; }
+    projects.delete(pName);
+    res.writeHead(200, headers);
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  // ── /api/projects/<name>/setup — generate setup instructions ────────
+  const setupMatch = pathname.match(/^\/api\/projects\/([^/]+)\/setup$/);
+  if (setupMatch) {
+    if (!checkToken()) return;
+    const pName = decodeURIComponent(setupMatch[1]);
+    const project = projects.get(pName);
+    if (!project) { res.writeHead(404, headers); res.end(JSON.stringify({ error: 'project not found' })); return; }
+
+    const relayUrl = project.relayUrl || (req.headers['x-forwarded-proto'] === 'https' ? 'wss' : 'ws') + '://' + (req.headers.host || 'localhost:7654').replace(/:[0-9]+$/, ':' + PORT);
+    const machine = project.machine || os.hostname().split('.')[0] || 'agent';
+    const teamTokenMap = {};
+    for (const t of project.teams) teamTokenMap[t.name] = t.token;
+
+    const instructions = project.agents.map(agent => {
+      const teamParts = agent.teams.map(t => {
+        const tok = teamTokenMap[t] || '';
+        return tok ? `${t}:${tok}` : t;
+      });
+      const teamLogin = teamParts.length > 0 ? '@' + teamParts.join(',') : '';
+      const wizardTeams = teamParts.length > 0 ? ' ' + teamParts.join(' ') : '';
+      const wizardCmd = `/pinet wizard ${relayUrl} ${TOKEN} ${machine}${wizardTeams}`;
+      const loginCmd = `/pinet ${agent.name}${teamLogin}`;
+
+      return {
+        agent: agent.name,
+        role: agent.role,
+        model: agent.model,
+        teams: agent.teams,
+        machine: agent.machine,
+        commands: [wizardCmd, loginCmd].join('\n'),
+      };
+    });
+
+    res.writeHead(200, headers);
+    res.end(JSON.stringify({ project: pName, instructions }));
+    return;
+  }
+
   // ── Dashboard (fallback) ─────────────────────────────────────────────
   res.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-cache, no-store, must-revalidate" });
-  res.end(DASHBOARD_HTML);
+  let html = DASHBOARD_HTML;
+  if (DEMO_PROJECT) {
+    html = html.replace('</body>', '<script>TOKEN="' + TOKEN + '";sessionStorage.setItem("pinet-token",TOKEN);doLogin();</script></body>');
+  }
+  res.end(html);
 }
 
 // =============================================================================

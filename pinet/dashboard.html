@@ -5,80 +5,176 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>pinet</title>
 <style>
-:root{--bg:#0a0a0a;--surface:#111;--surface2:#1a1a1a;--border:#222;--border2:#333;--text:#e5e5e5;--dim:#888;--dimmer:#555;--accent:#3b82f6;--green:#22c55e;--red:#ef4444}
+:root{--bg:#0a0a0a;--surface:#111;--surface2:#1a1a1a;--border:#222;--border2:#333;--text:#e5e5e5;--dim:#888;--dimmer:#555;--accent:#3b82f6;--green:#22c55e;--red:#ef4444;--yellow:#eab308;--purple:#a855f7}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;height:100vh;overflow:hidden}
 a{color:var(--accent);text-decoration:none}
+button{cursor:pointer;font-family:inherit}
+input,textarea,select{font-family:inherit;font-size:14px}
 
 /* ── Login ────────────────────────────── */
 .login-wrap{display:flex;align-items:center;justify-content:center;height:100vh}
-.login{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:2.5rem;width:360px}
+.login{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:2.5rem;width:380px}
 .login h2{text-align:center;margin-bottom:.5rem;font-size:18px;font-weight:600}
 .login p{text-align:center;color:var(--dim);font-size:13px;margin-bottom:1.5rem}
-.login input{width:100%;font-family:inherit;font-size:14px;padding:.7rem .85rem;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);margin-bottom:1rem}
+.login input{width:100%;padding:.7rem .85rem;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);margin-bottom:1rem}
 .login input:focus{outline:none;border-color:var(--accent)}
-.login button{width:100%;padding:.7rem;border-radius:10px;border:none;background:var(--accent);color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .15s}
+.login button{width:100%;padding:.7rem;border-radius:10px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:600;transition:opacity .15s}
 .login button:hover{opacity:.85}
 .login .error{color:var(--red);font-size:13px;margin-top:.75rem;text-align:center}
 .hidden{display:none!important}
 
 /* ── App shell ────────────────────────── */
-.app{display:flex;height:100vh}
+.app{display:flex;flex-direction:column;height:100vh}
 
-/* Sidebar */
-.sidebar{width:320px;min-width:320px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column}
-.sidebar-header{padding:1rem 1.25rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
-.sidebar-header h1{font-size:16px;font-weight:700;letter-spacing:.5px}
-.sidebar-header .status{font-size:11px;color:var(--dim)}
-.sidebar-header .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:4px;vertical-align:middle}
+/* Top nav */
+.topnav{display:flex;align-items:center;padding:.75rem 1.25rem;border-bottom:1px solid var(--border);background:var(--surface);gap:1.5rem}
+.topnav h1{font-size:16px;font-weight:700;letter-spacing:.5px;flex-shrink:0}
+.topnav h1 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:6px;vertical-align:middle}
+.topnav .tabs{display:flex;gap:.25rem}
+.topnav .tab{padding:.4rem .85rem;border-radius:8px;border:none;background:transparent;color:var(--dim);font-size:13px;font-weight:500;transition:all .15s}
+.topnav .tab:hover{color:var(--text);background:var(--surface2)}
+.topnav .tab.active{color:var(--text);background:var(--border2)}
+.topnav .spacer{flex:1}
+.topnav .status{font-size:12px;color:var(--dim);flex-shrink:0}
 
+/* Content area */
+.content{flex:1;overflow:hidden;display:flex}
+
+/* ── Chat view ────────────────────────── */
+.chat-wrap{display:flex;width:100%;height:100%}
+.sidebar{width:300px;min-width:300px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.sidebar-header{padding:.75rem 1rem;border-bottom:1px solid var(--border);font-size:13px;color:var(--dim);font-weight:600}
 .conv-list{flex:1;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
 .conv-section{padding:.5rem 1rem .25rem;font-size:11px;font-weight:600;color:var(--dimmer);text-transform:uppercase;letter-spacing:.5px}
-.conv-item{display:flex;align-items:center;padding:.75rem 1.25rem;cursor:pointer;border-left:3px solid transparent;transition:background .1s}
+.conv-item{display:flex;align-items:center;padding:.7rem 1rem;cursor:pointer;border-left:3px solid transparent;transition:background .1s}
 .conv-item:hover{background:var(--surface2)}
 .conv-item.active{background:var(--surface2);border-left-color:var(--accent)}
-.conv-avatar{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;margin-right:.85rem;flex-shrink:0}
+.conv-avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;margin-right:.75rem;flex-shrink:0}
 .conv-avatar.team{background:#1e3a5f;color:#60a5fa}
 .conv-avatar.dm{background:#1a3a2a;color:#4ade80}
 .conv-body{flex:1;min-width:0}
 .conv-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px}
-.conv-name{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv-name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .conv-time{font-size:11px;color:var(--dimmer);flex-shrink:0;margin-left:.5rem}
-.conv-preview{font-size:13px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.conv-preview .from-name{color:var(--dimmer);margin-right:4px}
-.conv-badge{background:var(--accent);color:#fff;font-size:11px;font-weight:700;border-radius:10px;padding:1px 7px;margin-left:.5rem;flex-shrink:0}
+.conv-preview{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv-badge{background:var(--accent);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 6px;margin-left:.5rem;flex-shrink:0}
 
-/* Chat panel */
-.chat{flex:1;display:flex;flex-direction:column;background:var(--bg)}
+.chat-panel{flex:1;display:flex;flex-direction:column;background:var(--bg)}
 .chat-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--dimmer);font-size:15px}
-.chat-header{padding:.85rem 1.25rem;border-bottom:1px solid var(--border);background:var(--surface);display:flex;align-items:center;justify-content:space-between}
-.chat-header-left{display:flex;align-items:center}
-.chat-header h3{font-size:15px;font-weight:600}
+.chat-header{padding:.75rem 1rem;border-bottom:1px solid var(--border);background:var(--surface);display:flex;align-items:center;justify-content:space-between}
+.chat-header h3{font-size:14px;font-weight:600}
 .chat-header .chat-sub{font-size:12px;color:var(--dim);margin-top:1px}
 .chat-header .members-list{font-size:12px;color:var(--dim)}
 .chat-header .members-list .online-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:3px;vertical-align:middle}
-
-.messages{flex:1;overflow-y:auto;padding:1rem 1.25rem;scrollbar-width:thin;scrollbar-color:var(--border) transparent;display:flex;flex-direction:column}
+.messages{flex:1;overflow-y:auto;padding:1rem;scrollbar-width:thin;scrollbar-color:var(--border) transparent;display:flex;flex-direction:column}
 .msg{max-width:70%;margin-bottom:.5rem}
 .msg.other{align-self:flex-start}
 .msg.self{align-self:flex-end}
-.msg-bubble{padding:.55rem .85rem;border-radius:12px;font-size:14px;line-height:1.5;word-break:break-word}
+.msg-bubble{padding:.5rem .75rem;border-radius:12px;font-size:13px;line-height:1.5;word-break:break-word}
 .msg.other .msg-bubble{background:var(--surface2);border-bottom-left-radius:4px}
 .msg.self .msg-bubble{background:#1e3a5f;border-bottom-right-radius:4px}
 .msg-meta{font-size:11px;color:var(--dimmer);margin-top:2px;padding:0 4px}
 .msg.other .msg-meta{text-align:left}
 .msg.self .msg-meta{text-align:right}
-.msg .sender{font-size:12px;color:var(--accent);font-weight:600;margin-bottom:1px;padding:0 4px}
+.msg .sender{font-size:11px;color:var(--accent);font-weight:600;margin-bottom:1px;padding:0 4px}
 .msg-date{display:flex;align-items:center;justify-content:center;padding:1rem 0}
 .msg-date span{font-size:11px;color:var(--dimmer);background:var(--surface);padding:3px 12px;border-radius:8px}
+
+/* ── Setup view ────────────────────────── */
+.setup-wrap{width:100%;height:100%;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.setup-container{max-width:800px;margin:0 auto;padding:2rem 2rem 4rem}
+
+/* Setup header */
+.setup-header{margin-bottom:2rem}
+.setup-header h2{font-size:20px;font-weight:700;margin-bottom:.25rem}
+.setup-header p{color:var(--dim);font-size:14px}
+
+/* Project list */
+.project-list{display:flex;flex-direction:column;gap:.5rem;margin-bottom:2rem}
+.project-card{display:flex;align-items:center;padding:.85rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:border-color .15s}
+.project-card:hover{border-color:var(--border2)}
+.project-card .proj-name{font-weight:600;font-size:14px}
+.project-card .proj-meta{font-size:12px;color:var(--dim);margin-left:auto}
+.project-card .proj-delete{background:none;border:none;color:var(--dimmer);font-size:18px;padding:0 .5rem;margin-left:.75rem;transition:color .15s}
+.project-card .proj-delete:hover{color:var(--red)}
+
+/* Form */
+.form-section{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.5rem;margin-bottom:1.5rem}
+.form-section h3{font-size:15px;font-weight:600;margin-bottom:1rem;display:flex;align-items:center;gap:.5rem}
+.form-section h3 .num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:700;flex-shrink:0}
+.form-row{display:flex;gap:.75rem;margin-bottom:.75rem;align-items:flex-end}
+.form-row:last-child{margin-bottom:0}
+.form-group{flex:1;min-width:0}
+.form-group label{display:block;font-size:12px;color:var(--dim);margin-bottom:.3rem;font-weight:500}
+.form-group input,.form-group select,.form-group textarea{width:100%;padding:.55rem .7rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;border-color:var(--accent)}
+.form-group .hint{font-size:11px;color:var(--dimmer);margin-top:.2rem}
+.form-group input.small{width:80px;flex:none}
+.form-group input.medium{width:140px;flex:none}
+
+/* Buttons */
+.btn{padding:.55rem 1rem;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;font-weight:500;transition:all .15s;display:inline-flex;align-items:center;gap:.4rem}
+.btn:hover{border-color:var(--border2);background:var(--border)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-primary:hover{opacity:.85;border-color:var(--accent)}
+.btn-danger{border-color:var(--red);color:var(--red)}
+.btn-danger:hover{background:var(--red);color:#fff}
+.btn-sm{padding:.35rem .7rem;font-size:12px}
+.btn-ghost{background:transparent;border-color:transparent}
+.btn-ghost:hover{background:var(--surface2)}
+.btn-add{border-style:dashed;color:var(--dim);width:100%;justify-content:center;margin-top:.5rem}
+.btn-add:hover{border-color:var(--accent);color:var(--accent)}
+
+/* Agent rows */
+.agent-row{display:flex;align-items:flex-start;gap:.5rem;padding:.75rem;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:.5rem}
+.agent-row .agent-idx{font-size:12px;color:var(--dimmer);padding-top:.55rem;min-width:18px;text-align:center}
+.agent-row .agent-fields{flex:1;display:flex;flex-wrap:wrap;gap:.5rem;align-items:flex-end}
+.agent-row .agent-fields .form-group{min-width:100px}
+.agent-row .agent-fields .form-group.name-grp{min-width:140px}
+.agent-row .agent-fields .form-group.role-grp{min-width:180px;flex:1}
+.agent-row .agent-remove{background:none;border:none;color:var(--dimmer);font-size:16px;padding:.4rem;transition:color .15s;margin-top:.3rem}
+.agent-row .agent-remove:hover{color:var(--red)}
+
+/* Team rows */
+.team-row{display:flex;align-items:flex-end;gap:.5rem;padding:.6rem .75rem;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:.5rem}
+.team-row .team-idx{font-size:12px;color:var(--dimmer);min-width:18px;text-align:center;padding-bottom:.55rem}
+.team-row .team-token{font-family:'SF Mono',Monaco,Consolas,monospace;font-size:11px;color:var(--dimmer);padding:.4rem .5rem;background:var(--surface);border-radius:6px;margin-left:auto;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Instructions panel */
+.instructions{margin-top:2rem}
+.instructions h3{font-size:16px;font-weight:600;margin-bottom:1rem}
+.instr-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:.75rem;overflow:hidden}
+.instr-card-header{display:flex;align-items:center;padding:.75rem 1rem;border-bottom:1px solid var(--border);gap:.75rem}
+.instr-card-header .agent-badge{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0;background:#1e3a5f;color:#60a5fa}
+.instr-card-header .agent-info{flex:1}
+.instr-card-header .agent-info .aname{font-weight:600;font-size:14px}
+.instr-card-header .agent-info .ameta{font-size:12px;color:var(--dim)}
+.instr-card-header .copy-btn{background:var(--accent);color:#fff;border:none;padding:.4rem .85rem;border-radius:8px;font-size:12px;font-weight:600;transition:opacity .15s;display:flex;align-items:center;gap:.3rem}
+.instr-card-header .copy-btn:hover{opacity:.85}
+.instr-card-header .copy-btn.copied{background:var(--green)}
+.instr-card-body{padding:0}
+.instr-card-body pre{font-family:'SF Mono',Monaco,Consolas,monospace;font-size:12px;line-height:1.7;padding:1rem;margin:0;overflow-x:auto;color:var(--text);white-space:pre}
+.instr-card-body .comment{color:var(--dimmer)}
+.instr-card-body .cmd{color:var(--green)}
+.instr-card-body .string{color:var(--yellow)}
+
+/* Empty state */
+.empty-state{text-align:center;padding:4rem 2rem;color:var(--dimmer)}
+.empty-state .icon{font-size:48px;margin-bottom:1rem;opacity:.5}
+.empty-state h3{font-size:18px;color:var(--dim);margin-bottom:.5rem}
+.empty-state p{font-size:14px;max-width:400px;margin:0 auto}
 
 /* Mobile */
 @media(max-width:768px){
   .sidebar{width:100%;min-width:100%;display:flex}
-  .chat{position:absolute;top:0;left:0;width:100%;height:100%;z-index:20}
-  .chat.hidden-mobile{display:none}
+  .chat-panel{position:absolute;top:0;left:0;width:100%;height:100%;z-index:20}
+  .chat-panel.hidden-mobile{display:none}
   .sidebar.hidden-mobile{display:none}
   .back-btn{display:block!important}
+  .setup-container{padding:1rem 1rem 3rem}
+  .form-row{flex-direction:column}
+  .agent-row .agent-fields{flex-direction:column}
 }
 .back-btn{display:none;background:none;border:none;color:var(--accent);font-size:14px;cursor:pointer;padding:.25rem .5rem;margin-right:.5rem}
 </style>
@@ -98,34 +194,64 @@ a{color:var(--accent);text-decoration:none}
 
 <!-- App -->
 <div id="app" class="app hidden">
-  <!-- Sidebar -->
-  <div id="sidebar" class="sidebar">
-    <div class="sidebar-header">
-      <div><h1><span class="dot"></span>pinet</h1></div>
-      <div class="status" id="status-line"></div>
+  <div class="topnav">
+    <h1><span class="dot"></span>pinet</h1>
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('chat')">messages</button>
+      <button class="tab" onclick="switchTab('setup')">team setup</button>
     </div>
-    <div class="conv-list" id="conv-list"></div>
+    <div class="spacer"></div>
+    <div class="status" id="status-line"></div>
   </div>
-  <!-- Chat -->
-  <div id="chat" class="chat hidden-mobile">
-    <div class="chat-empty" id="chat-empty">select a conversation</div>
-    <div id="chat-active" class="hidden" style="display:flex;flex-direction:column;height:100%">
-      <div class="chat-header" id="chat-header"></div>
-      <div class="messages" id="chat-messages"></div>
+
+  <!-- Chat view -->
+  <div id="view-chat" class="content">
+    <div class="chat-wrap">
+      <div id="sidebar" class="sidebar">
+        <div class="sidebar-header">conversations</div>
+        <div class="conv-list" id="conv-list"></div>
+      </div>
+      <div id="chat-panel" class="chat-panel hidden-mobile">
+        <div class="chat-empty" id="chat-empty">select a conversation</div>
+        <div id="chat-active" class="hidden" style="display:flex;flex-direction:column;height:100%">
+          <div class="chat-header" id="chat-header"></div>
+          <div class="messages" id="chat-messages"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Setup view -->
+  <div id="view-setup" class="content hidden">
+    <div class="setup-wrap">
+      <div class="setup-container" id="setup-content"></div>
     </div>
   </div>
 </div>
 
 <script>
 const TOKEN_KEY = 'pinet-token';
-let TOKEN = sessionStorage.getItem(TOKEN_KEY) || '';
+var TOKEN = sessionStorage.getItem(TOKEN_KEY) || '';
+
+// Auto-login from ?token= query param
+(function(){
+  const params = new URLSearchParams(window.location.search);
+  const urlToken = params.get('token');
+  if(urlToken){ TOKEN = urlToken; sessionStorage.setItem(TOKEN_KEY, TOKEN); }
+})();
 let refreshTimer = null;
-let selectedType = null; // 'team' | 'dm'
-let selectedId = null;   // team name or agent name
-let myAgent = null;      // not tracked — we don't know who "we" are, so we don't distinguish self/other
+let selectedType = null;
+let selectedId = null;
+let activeTab = 'chat';
+
+// Setup state
+let setupState = 'list'; // 'list' | 'form' | 'instructions'
+let editProject = null;
+let setupForm = { name: '', agents: [], teams: [], relayUrl: '', machine: '' };
 
 function $(id){ return document.getElementById(id); }
 function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+function escAttr(s){ return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function fmtTime(iso){
   if(!iso) return '';
   const d = new Date(iso), now = new Date();
@@ -140,15 +266,16 @@ function fmtFull(iso){
   return new Date(iso).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
 }
 
-async function api(path){
-  const r = await fetch(path + (path.includes('?') ? '&' : '?') + 'token=' + TOKEN);
+async function api(path, opts){
+  const url = path + (path.includes('?') ? '&' : '?') + 'token=' + TOKEN;
+  const r = await fetch(url, opts);
   if(r.status === 401) throw new Error('unauthorized');
   return r.json();
 }
 
 // ── Login ──────────────────────────────────────────────────────
 async function doLogin(){
-  TOKEN = $('token-input').value.trim();
+  if(!TOKEN) TOKEN = $('token-input').value.trim();
   if(!TOKEN) return;
   try{
     const d = await api('/api/stats');
@@ -157,7 +284,10 @@ async function doLogin(){
     $('app').classList.remove('hidden');
     renderSidebar(d);
     loadPreviews();
-    refreshTimer = setInterval(() => { poll(); loadPreviews(); }, 4000);
+    refreshTimer = setInterval(() => {
+      poll();
+      loadPreviews();
+    }, 4000);
   }catch(e){
     $('login-error').textContent = 'invalid token';
     $('login-error').classList.remove('hidden');
@@ -166,11 +296,21 @@ async function doLogin(){
 $('token-input').addEventListener('keydown', e => { if(e.key === 'Enter') doLogin(); });
 if(TOKEN) doLogin();
 
+// ── Tabs ───────────────────────────────────────────────────────
+function switchTab(tab){
+  activeTab = tab;
+  document.querySelectorAll('.topnav .tab').forEach(t => t.classList.toggle('active', t.textContent.includes(tab === 'chat' ? 'messages' : 'team')));
+  $('view-chat').classList.toggle('hidden', tab !== 'chat');
+  $('view-setup').classList.toggle('hidden', tab !== 'setup');
+  if(tab === 'setup') renderSetup();
+}
+
 // ── Poll ───────────────────────────────────────────────────────
 async function poll(){
   try{
     const d = await api('/api/stats');
     renderSidebar(d);
+    $('status-line').textContent = d.agents.length + ' online';
     if(selectedType && selectedId) loadChat();
   }catch{}
 }
@@ -179,191 +319,458 @@ async function poll(){
 function renderSidebar(stats){
   const convs = buildConversations(stats);
   let html = '';
-
-  // Teams (groups)
   const teams = convs.filter(c => c.type === 'team');
   if(teams.length){
     html += '<div class="conv-section">groups</div>';
-    for(const t of teams){
-      const active = selectedType === 'team' && selectedId === t.id;
-      html += convItem(t, active);
-    }
+    for(const t of teams) html += convItem(t, selectedType === 'team' && selectedId === t.id);
   }
-
-  // DMs
   const dms = convs.filter(c => c.type === 'dm');
   if(dms.length){
     html += '<div class="conv-section">direct</div>';
-    for(const d of dms){
-      const active = selectedType === 'dm' && selectedId === d.id;
-      html += convItem(d, active);
-    }
+    for(const d of dms) html += convItem(d, selectedType === 'dm' && selectedId === d.id);
   }
-
-  if(!teams.length && !dms.length){
+  if(!teams.length && !dms.length)
     html = '<div style="padding:2rem;text-align:center;color:var(--dimmer);font-size:13px">no conversations yet</div>';
-  }
-
   $('conv-list').innerHTML = html;
-
-  // Status line
-  $('status-line').textContent = stats.agents.length + ' online';
 }
 
 function buildConversations(stats){
   const convs = [];
-  // We'll load conversations async — for now build from stats
-  // Teams are known from stats
-  for(const t of (stats.teamList || [])){
-    convs.push({
-      type: 'team',
-      id: t.name,
-      name: t.name,
-      subtitle: t.members.length + ' members',
-      members: t.members,
-      lastMessage: null, // filled by conversations API
-      time: null,
-      count: 0,
-    });
-  }
-  // Agents as potential DM targets
-  for(const a of (stats.agents || [])){
-    convs.push({
-      type: 'dm',
-      id: a.name,
-      name: a.name,
-      subtitle: a.machine,
-      machine: a.machine,
-      teams: a.teams || [],
-      lastMessage: null,
-      time: null,
-      count: 0,
-    });
-  }
+  for(const t of (stats.teamList || []))
+    convs.push({ type:'team', id:t.name, name:t.name, subtitle:t.members.length+' members', members:t.members, lastMessage:null, time:null, count:0 });
+  for(const a of (stats.agents || []))
+    convs.push({ type:'dm', id:a.name, name:a.name, subtitle:a.machine, machine:a.machine, teams:a.teams||[], lastMessage:null, time:null, count:0 });
   return convs;
 }
 
 function convItem(c, active){
-  const cls = 'conv-item' + (active ? ' active' : '');
-  const avatarCls = 'conv-avatar ' + (c.type === 'team' ? 'team' : 'dm');
-  const initials = c.type === 'team' ? '#' : c.name.slice(0,2).toUpperCase();
+  const cls = 'conv-item'+(active?' active':'');
+  const avatarCls = 'conv-avatar '+(c.type==='team'?'team':'dm');
+  const initials = c.type==='team'?'#':c.name.slice(0,2).toUpperCase();
   const preview = c.lastMessage
-    ? '<span class="from-name">' + esc(c.lastMessage.from) + ':</span>' + esc(c.lastMessage.body)
-    : (c.type === 'team' ? esc(c.subtitle) : esc(c.subtitle));
+    ? '<span class="from-name">'+esc(c.lastMessage.from)+':</span>'+esc(c.lastMessage.body)
+    : esc(c.subtitle);
   const time = c.time ? fmtTime(c.time) : '';
-  const badge = c.count > 0 ? '<span class="conv-badge">' + c.count + '</span>' : '';
-  return '<div class="' + cls + '" onclick="selectConv(\'' + c.type + '\',\'' + esc(c.id) + '\')">'
-    + '<div class="' + avatarCls + '">' + initials + '</div>'
-    + '<div class="conv-body">'
-    + '<div class="conv-top"><span class="conv-name">' + (c.type === 'team' ? '# ' : '') + esc(c.name) + '</span>'
-    + '<span class="conv-time">' + time + '</span></div>'
-    + '<div class="conv-preview">' + preview + '</div>'
-    + '</div>' + badge + '</div>';
+  return '<div class="'+cls+'" onclick="selectConv(\''+c.type+'\',\''+escAttr(c.id)+'\')">'
+    +'<div class="'+avatarCls+'">'+initials+'</div>'
+    +'<div class="conv-body">'
+    +'<div class="conv-top"><span class="conv-name">'+(c.type==='team'?'# ':'')+esc(c.name)+'</span>'
+    +'<span class="conv-time">'+time+'</span></div>'
+    +'<div class="conv-preview">'+preview+'</div>'
+    +'</div></div>';
 }
 
 // ── Select conversation ────────────────────────────────────────
 function selectConv(type, id){
-  selectedType = type;
-  selectedId = id;
+  selectedType = type; selectedId = id;
   $('chat-empty').classList.add('hidden');
   $('chat-active').classList.remove('hidden');
-  // Mobile: show chat, hide sidebar
-  $('chat').classList.remove('hidden-mobile');
+  $('chat-panel').classList.remove('hidden-mobile');
   $('sidebar').classList.add('hidden-mobile');
   loadChat();
 }
-
 function goBack(){
-  selectedType = null;
-  selectedId = null;
-  $('chat').classList.add('hidden-mobile');
+  selectedType=null; selectedId=null;
+  $('chat-panel').classList.add('hidden-mobile');
   $('sidebar').classList.remove('hidden-mobile');
 }
 
 // ── Load chat messages ─────────────────────────────────────────
 async function loadChat(){
-  if(!selectedType || !selectedId) return;
+  if(!selectedType||!selectedId) return;
   try{
     let data;
-    if(selectedType === 'team'){
-      data = await api('/api/messages/' + encodeURIComponent(selectedId));
-      renderChatHeader(selectedId, data.members || [], 'team');
+    if(selectedType==='team'){
+      data = await api('/api/messages/'+encodeURIComponent(selectedId));
+      renderChatHeader(selectedId, data.members||[], 'team');
     }else{
-      data = await api('/api/mailbox/' + encodeURIComponent(selectedId));
+      data = await api('/api/mailbox/'+encodeURIComponent(selectedId));
       renderChatHeader(selectedId, [], 'dm');
     }
-    renderMessages(data.messages || []);
+    renderMessages(data.messages||[]);
   }catch(e){
-    $('chat-messages').innerHTML = '<div style="text-align:center;color:var(--dim);padding:2rem">error: ' + esc(e.message) + '</div>';
+    $('chat-messages').innerHTML='<div style="text-align:center;color:var(--dim);padding:2rem">error: '+esc(e.message)+'</div>';
   }
 }
 
 function renderChatHeader(name, members, type){
-  let html = '<div class="chat-header-left">';
-  html += '<button class="back-btn" onclick="goBack()">← back</button>';
-  html += '<div><h3>' + (type === 'team' ? '# ' : '') + esc(name) + '</h3>';
-  if(type === 'team' && members.length){
-    html += '<div class="members-list">' + members.map(m => '<span><span class="online-dot"></span>' + esc(m) + '</span>').join(' · ') + '</div>';
-  }else{
-    html += '<div class="chat-sub">direct message</div>';
-  }
-  html += '</div></div>';
-  $('chat-header').innerHTML = html;
+  let html='<div style="display:flex;align-items:center">';
+  html+='<button class="back-btn" onclick="goBack()">←</button>';
+  html+='<div><h3>'+(type==='team'?'# ':'')+esc(name)+'</h3>';
+  if(type==='team'&&members.length)
+    html+='<div class="members-list">'+members.map(m=>'<span><span class="online-dot"></span>'+esc(m)+'</span>').join(' · ')+'</div>';
+  else html+='<div class="chat-sub">direct message</div>';
+  html+='</div></div>';
+  $('chat-header').innerHTML=html;
 }
 
 function renderMessages(messages){
   if(!messages.length){
-    $('chat-messages').innerHTML = '<div style="text-align:center;color:var(--dimmer);padding:3rem">no messages yet</div>';
+    $('chat-messages').innerHTML='<div style="text-align:center;color:var(--dimmer);padding:3rem">no messages yet</div>';
     return;
   }
-  let html = '';
-  let lastDate = '';
+  let html=''; let lastDate='';
   for(const m of messages){
-    const date = m.timestamp ? new Date(m.timestamp).toDateString() : '';
-    if(date && date !== lastDate){
-      lastDate = date;
-      html += '<div class="msg-date"><span>' + fmtTime(m.timestamp) + '</span></div>';
-    }
-    // We can't distinguish self/other without knowing our agent name
-    // So show all as "other" with sender name
-    html += '<div class="msg other">';
-    html += '<div class="sender">' + esc(m.from) + '</div>';
-    html += '<div class="msg-bubble">' + esc(m.body) + '</div>';
-    html += '<div class="msg-meta">' + fmtFull(m.timestamp) + '</div>';
-    html += '</div>';
+    const date=m.timestamp?new Date(m.timestamp).toDateString():'';
+    if(date&&date!==lastDate){ lastDate=date; html+='<div class="msg-date"><span>'+fmtTime(m.timestamp)+'</span></div>'; }
+    html+='<div class="msg other"><div class="sender">'+esc(m.from)+'</div>'
+      +'<div class="msg-bubble">'+esc(m.body)+'</div>'
+      +'<div class="msg-meta">'+fmtFull(m.timestamp)+'</div></div>';
   }
-  $('chat-messages').innerHTML = html;
-  $('chat-messages').scrollTop = $('chat-messages').scrollHeight;
+  $('chat-messages').innerHTML=html;
+  $('chat-messages').scrollTop=$('chat-messages').scrollHeight;
 }
 
-// ── Load conversation previews ─────────────────────────────────
 async function loadPreviews(){
   try{
     const conv = await api('/api/conversations');
-    updatePreviews(conv);
+    for(const t of conv.teams||[]){
+      const el = $('conv-list').querySelector('.conv-item[onclick*="'+t.name+'"]');
+      if(el&&t.lastMessage){
+        const p=el.querySelector('.conv-preview');
+        if(p) p.innerHTML='<span class="from-name">'+esc(t.lastMessage.from)+':</span>'+esc(t.lastMessage.body);
+      }
+    }
   }catch{}
 }
 
-function updatePreviews(conv){
-  const items = $('conv-list').querySelectorAll('.conv-item');
-  // For each team in conv.teams, update preview if matching
-  for(const t of conv.teams || []){
-    const el = $('conv-list').querySelector('.conv-item[onclick*="team"][onclick*="' + t.name + '"]');
-    if(el && t.lastMessage){
-      const preview = el.querySelector('.conv-preview');
-      if(preview) preview.innerHTML = '<span class="from-name">' + esc(t.lastMessage.from) + ':</span>' + esc(t.lastMessage.body);
-      const time = el.querySelector('.conv-time');
-      if(time) time.textContent = fmtTime(t.lastMessage.timestamp);
+// =============================================================================
+// SETUP VIEW
+// =============================================================================
+
+const MODEL_OPTIONS = [
+  { value:'', label:'(auto)' },
+  { value:'claude-sonnet-4', label:'Claude Sonnet 4' },
+  { value:'claude-haiku-4', label:'Claude Haiku 4' },
+  { value:'gpt-4o', label:'GPT-4o' },
+  { value:'gpt-4o-mini', label:'GPT-4o Mini' },
+  { value:'glm-4.7', label:'GLM 4.7' },
+  { value:'glm-5.1', label:'GLM 5.1' },
+  { value:'deepseek-v3', label:'DeepSeek V3' },
+  { value:'deepseek-r1', label:'DeepSeek R1' },
+  { value:'gemini-2.5-pro', label:'Gemini 2.5 Pro' },
+];
+
+function modelSelect(val, id){
+  let html='<select id="'+id+'">';
+  for(const m of MODEL_OPTIONS) html+='<option value="'+escAttr(m.value)+'"'+(m.value===val?' selected':'')+'>'+esc(m.label)+'</option>';
+  html+='</select>';
+  return html;
+}
+
+function renderSetup(){
+  if(setupState==='list') renderSetupList();
+  else if(setupState==='form') renderSetupForm();
+  else if(setupState==='instructions') renderSetupInstructions();
+}
+
+// ── Project list ──────────────────────────────────────────────
+async function renderSetupList(){
+  let html='<div class="setup-header"><h2>Team Setup</h2><p>Create a project, configure agents and teams, then copy setup commands for each agent.</p></div>';
+  html+='<div style="margin-bottom:1.5rem"><button class="btn btn-primary" onclick="newProject()">+ new project</button></div>';
+
+  try{
+    const data = await api('/api/projects');
+    const projects = data.projects || [];
+    if(projects.length === 0){
+      html+='<div class="empty-state"><div class="icon">🤖</div><h3>No projects yet</h3><p>Create a project to configure your agent team and get setup commands.</p></div>';
+    }else{
+      html+='<div class="project-list">';
+      for(const p of projects){
+        const agentCount = p.agents?.length || 0;
+        const teamCount = p.teams?.length || 0;
+        html+='<div class="project-card" onclick="openProject(\''+escAttr(p.name)+'\')">'
+          +'<span class="proj-name">'+esc(p.name)+'</span>'
+          +'<span class="proj-meta">'+agentCount+' agent'+(agentCount!==1?'s':'')+' · '+teamCount+' team'+(teamCount!==1?'s':'')+'</span>'
+          +'<button class="proj-delete" onclick="event.stopPropagation();deleteProject(\''+escAttr(p.name)+'\')" title="Delete">✕</button>'
+          +'</div>';
+      }
+      html+='</div>';
     }
+  }catch(e){
+    html+='<div style="color:var(--red);padding:1rem">Failed to load projects: '+esc(e.message)+'</div>';
+  }
+
+  $('setup-content').innerHTML = html;
+}
+
+function newProject(){
+  editProject = null;
+  setupForm = { name:'', agents:[
+    { name:'Master', model:'claude-sonnet-4', role:'Coordinator — decomposes tasks and manages the team', teams:['build'], machine:'' },
+    { name:'FrontendDev', model:'', role:'Frontend developer', teams:['build'], machine:'' },
+    { name:'BackendDev', model:'', role:'Backend developer', teams:['build'], machine:'' },
+    { name:'Tester', model:'', role:'QA — validates features and reports bugs', teams:['build'], machine:'' },
+  ], teams:[{ name:'build', token:'' }], relayUrl:'', machine:'' };
+  setupState = 'form';
+  renderSetup();
+}
+
+async function openProject(name){
+  try{
+    const data = await api('/api/projects');
+    const p = (data.projects||[]).find(x=>x.name===name);
+    if(!p) return;
+    editProject = name;
+    setupForm = {
+      name: p.name,
+      agents: p.agents||[],
+      teams: p.teams||[],
+      relayUrl: p.relayUrl||'',
+      machine: p.machine||'',
+    };
+    setupState = 'form';
+    renderSetup();
+  }catch{}
+}
+
+async function deleteProject(name){
+  if(!confirm('Delete project "'+name+'"?')) return;
+  try{
+    await api('/api/projects/'+encodeURIComponent(name), { method:'DELETE' });
+    renderSetupList();
+  }catch(e){
+    alert('Delete failed: '+e.message);
   }
 }
 
-// Load previews after sidebar renders
-function enhancedPoll(){
-  poll().then(() => loadPreviews());
+// ── Form ──────────────────────────────────────────────────────
+function renderSetupForm(){
+  const isEdit = !!editProject;
+  const f = setupForm;
+  let html='<div class="setup-header"><h2>'+(isEdit?'Edit':'New')+' Project</h2></div>';
+
+  // Project info
+  html+='<div class="form-section"><h3><span class="num">1</span> Project</h3>';
+  html+='<div class="form-row">';
+  html+='<div class="form-group"><label>Name</label><input id="f-name" value="'+escAttr(f.name)+'" placeholder="my-app"'+(isEdit?' disabled':'')+'></div>';
+  html+='<div class="form-group" style="max-width:200px"><label>Machine name</label><input id="f-machine" value="'+escAttr(f.machine)+'" placeholder="mac"></div>';
+  html+='</div>';
+  html+='<div class="form-row">';
+  html+='<div class="form-group"><label>Relay URL</label><input id="f-relay" value="'+escAttr(f.relayUrl)+'" placeholder="ws://localhost:7654"></div>';
+  html+='</div>';
+  html+='</div>';
+
+  // Teams
+  html+='<div class="form-section"><h3><span class="num">2</span> Teams</h3>';
+  html+='<div id="teams-container">';
+  f.teams.forEach((t,i) => {
+    html += teamRowHtml(i, t);
+  });
+  html+='</div>';
+  html+='<button class="btn btn-add" onclick="addTeam()">+ add team</button>';
+  html+='</div>';
+
+  // Agents
+  html+='<div class="form-section"><h3><span class="num">3</span> Agents</h3>';
+  html+='<div id="agents-container">';
+  f.agents.forEach((a,i) => {
+    html += agentRowHtml(i, a);
+  });
+  html+='</div>';
+  html+='<button class="btn btn-add" onclick="addAgent()">+ add agent</button>';
+  html+='</div>';
+
+  // Actions
+  html+='<div style="display:flex;gap:.75rem;margin-top:1.5rem">';
+  html+='<button class="btn btn-ghost" onclick="setupState=\'list\';renderSetup()">← back</button>';
+  html+='<div style="flex:1"></div>';
+  html+='<button class="btn btn-primary" onclick="saveProject()">'+(isEdit?'update':'create project')+'</button>';
+  html+='</div>';
+
+  $('setup-content').innerHTML = html;
 }
-if(refreshTimer) clearInterval(refreshTimer);
-// Will be set after login
+
+function teamRowHtml(i, t){
+  const tokenDisplay = t.token ? t.token.slice(0,8)+'…' : 'auto-generated';
+  return '<div class="team-row" id="team-'+i+'">'
+    +'<span class="team-idx">'+(i+1)+'</span>'
+    +'<div class="form-group" style="max-width:160px"><label>Name</label><input value="'+escAttr(t.name)+'" onchange="updateTeamField('+i+',\'name\',this.value)" placeholder="build"></div>'
+    +'<span class="team-token" title="'+escAttr(t.token)+'">'+esc(tokenDisplay)+'</span>'
+    +'<button class="agent-remove" onclick="removeTeam('+i+')" title="Remove">✕</button>'
+    +'</div>';
+}
+
+function agentRowHtml(i, a){
+  return '<div class="agent-row" id="agent-'+i+'">'
+    +'<span class="agent-idx">'+(i+1)+'</span>'
+    +'<div class="agent-fields">'
+    +'<div class="form-group name-grp"><label>Name</label><input value="'+escAttr(a.name)+'" onchange="updateAgentField('+i+',\'name\',this.value)" placeholder="BackendDev"></div>'
+    +'<div class="form-group" style="max-width:160px"><label>Model</label>'+modelSelect(a.model,'agent-model-'+i)+'</div>'
+    +'<div class="form-group role-grp"><label>Role</label><input value="'+escAttr(a.role)+'" onchange="updateAgentField('+i+',\'role\',this.value)" placeholder="Builds the API"></div>'
+    +'<div class="form-group" style="max-width:140px"><label>Teams</label><input value="'+escAttr((a.teams||[]).join(', '))+'" onchange="updateAgentTeams('+i+',this.value)" placeholder="build"></div>'
+    +'</div>'
+    +'<button class="agent-remove" onclick="removeAgent('+i+')" title="Remove">✕</button>'
+    +'</div>';
+}
+
+function updateTeamField(i, field, val){ setupForm.teams[i][field] = val; }
+function updateAgentField(i, field, val){ setupForm.agents[i][field] = val; }
+function updateAgentTeams(i, val){ setupForm.agents[i].teams = val.split(',').map(s=>s.trim()).filter(Boolean); }
+
+function addTeam(){
+  setupForm.teams.push({ name:'', token:'' });
+  renderSetupForm();
+}
+function removeTeam(i){
+  setupForm.teams.splice(i,1);
+  renderSetupForm();
+}
+function addAgent(){
+  setupForm.agents.push({ name:'', model:'', role:'', teams: setupForm.teams.map(t=>t.name).filter(Boolean), machine:'' });
+  renderSetupForm();
+}
+function removeAgent(i){
+  setupForm.agents.splice(i,1);
+  renderSetupForm();
+}
+
+// ── Save project ──────────────────────────────────────────────
+async function saveProject(){
+  // Read form values
+  const nameInput = $('f-name');
+  setupForm.name = nameInput ? nameInput.value.trim().replace(/\s+/g,'-').replace(/[^a-zA-Z0-9_-]/g,'') : setupForm.name;
+  setupForm.machine = ($('f-machine')||{}).value?.trim() || '';
+  setupForm.relayUrl = ($('f-relay')||{}).value?.trim() || '';
+
+  // Read model selects
+  setupForm.agents.forEach((a,i) => {
+    const sel = $('agent-model-'+i);
+    if(sel) a.model = sel.value;
+  });
+
+  // Validate
+  if(!setupForm.name){ alert('Project name is required.'); return; }
+  if(!setupForm.agents.length){ alert('Add at least one agent.'); return; }
+  const emptyAgent = setupForm.agents.find(a=>!a.name.trim());
+  if(emptyAgent){ alert('All agents need a name.'); return; }
+
+  try{
+    const method = editProject ? 'PUT' : 'POST';
+    // For edit, delete old and create new (simple approach — relay doesn't have PUT)
+    if(editProject){
+      await api('/api/projects/'+encodeURIComponent(editProject), { method:'DELETE' });
+    }
+    const result = await api('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: setupForm.name,
+        agents: setupForm.agents,
+        teams: setupForm.teams.map(t=>({ name:t.name, token:t.token })),
+        relayUrl: setupForm.relayUrl,
+        machine: setupForm.machine,
+      }),
+    });
+
+    // Reload to get server-generated tokens
+    editProject = result.name;
+    setupForm.teams = result.teams || setupForm.teams;
+    setupForm.agents = result.agents || setupForm.agents;
+
+    setupState = 'instructions';
+    renderSetup();
+  }catch(e){
+    alert('Save failed: '+e.message);
+  }
+}
+
+// ── Instructions ──────────────────────────────────────────────
+async function renderSetupInstructions(){
+  const name = editProject || setupForm.name;
+  let html='<div class="setup-header"><h2>Setup Instructions</h2><p>Copy each block and paste it into the corresponding agent\'s terminal.</p></div>';
+
+  try{
+    const data = await api('/api/projects/'+encodeURIComponent(name)+'/setup');
+    const instructions = data.instructions || [];
+
+    if(!instructions.length){
+      html+='<div style="color:var(--yellow);padding:1rem">No agents configured. Go back and add agents.</div>';
+    }
+
+    html+='<div class="instructions">';
+    for(const instr of instructions){
+      const agent = instr.agent;
+      const initials = agent.slice(0,2).toUpperCase();
+      const metaParts = [];
+      if(instr.role) metaParts.push(instr.role);
+      if(instr.model) metaParts.push(instr.model);
+      if(instr.teams?.length) metaParts.push('#'+instr.teams.join(' #'));
+
+      html+='<div class="instr-card">';
+      html+='<div class="instr-card-header">';
+      html+='<div class="agent-badge">'+esc(initials)+'</div>';
+      html+='<div class="agent-info">';
+      html+='<div class="aname">'+esc(agent)+'</div>';
+      html+='<div class="ameta">'+esc(metaParts.join(' · '))+'</div>';
+      html+='</div>';
+      html+='<button class="copy-btn" id="copy-'+escAttr(agent)+'" onclick="copyInstr(\''+escAttr(agent)+'\')">📋 copy</button>';
+      html+='</div>';
+      html+='<div class="instr-card-body"><pre id="instr-'+escAttr(agent)+'">'+highlightCmd(esc(instr.commands))+'</pre></div>';
+      html+='</div>';
+    }
+    html+='</div>';
+
+    // Back buttons
+    html+='<div style="display:flex;gap:.75rem;margin-top:2rem">';
+    html+='<button class="btn btn-ghost" onclick="openProject(\''+escAttr(name)+'\')">← edit project</button>';
+    html+='<button class="btn btn-ghost" onclick="setupState=\'list\';renderSetup()">← all projects</button>';
+    html+='<div style="flex:1"></div>';
+    html+='<button class="btn btn-primary" onclick="copyAll()">📋 copy all</button>';
+    html+='</div>';
+
+  }catch(e){
+    html+='<div style="color:var(--red);padding:1rem">Failed to generate instructions: '+esc(e.message)+'</div>';
+  }
+
+  $('setup-content').innerHTML = html;
+}
+
+function highlightCmd(text){
+  // Simple syntax highlighting for shell
+  return text
+    .replace(/^(#.*)$/gm, '<span class="comment">$1</span>')
+    .replace(/^(\$ .+)$/gm, '<span class="cmd">$1</span>')
+    .replace(/(&lt;!--.*?--&gt;)/g, '<span class="comment">$1</span>');
+}
+
+function copyInstr(agentName){
+  const el = $('instr-'+agentName);
+  if(!el) return;
+  const text = el.textContent || el.innerText;
+  navigator.clipboard.writeText(text).then(()=>{
+    const btn = $('copy-'+agentName);
+    btn.textContent = '✓ copied';
+    btn.classList.add('copied');
+    setTimeout(()=>{ btn.innerHTML='📋 copy'; btn.classList.remove('copied'); }, 2000);
+  }).catch(()=> fallbackCopy(text));
+}
+
+function copyAll(){
+  const blocks = document.querySelectorAll('.instr-card-body pre');
+  let all = '';
+  blocks.forEach((b,i) => {
+    if(i>0) all += '\n\n# ═══════════════════════════════════\n\n';
+    all += b.textContent || b.innerText;
+  });
+  navigator.clipboard.writeText(all).then(()=>{
+    // Brief visual feedback — could improve
+    const btns = document.querySelectorAll('.copy-btn');
+    btns.forEach(b=>{ b.textContent='✓ copied'; b.classList.add('copied'); });
+    setTimeout(()=> btns.forEach(b=>{ b.innerHTML='📋 copy'; b.classList.remove('copied'); }), 2000);
+  }).catch(()=> fallbackCopy(all));
+}
+
+function fallbackCopy(text){
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position='fixed';
+  ta.style.left='-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+}
 </script>
 </body>
 </html>
