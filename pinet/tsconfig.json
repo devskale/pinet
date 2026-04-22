@@ -7,7 +7,7 @@
     "allowImportingTsExtensions": true,
     "strict": true,
     "skipLibCheck": true,
-    "noEmit": true,
+    "noEmit": true, /* pi compiles TS at runtime — no build step needed. sync.mjs is plain JS by design (forked child process). */
     "resolveJsonModule": true,
     "isolatedModules": true,
     "forceConsistentCasingInFileNames": true,

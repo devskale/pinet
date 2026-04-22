@@ -44,11 +44,12 @@
  *   4015  agent name required
  */
 
-const { parseArgs } = require("node:util");
-const fs = require("node:fs");
-const path = require("node:path");
-const crypto = require("node:crypto");
-const os = require("node:os");
+import { parseArgs } from "node:util";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as crypto from "node:crypto";
+import * as os from "node:os";
+import { fileURLToPath } from "node:url";
 
 // =============================================================================
 // CLI
@@ -119,13 +120,7 @@ const CLOSE = {
 // WebSocket
 // =============================================================================
 
-let WebSocket;
-try {
-  WebSocket = require("ws");
-} catch {
-  console.error("'ws' package not found. Install it: npm install ws");
-  process.exit(1);
-}
+import { WebSocket, WebSocketServer } from "ws";
 
 // =============================================================================
 // State — in-memory only, rebuilt from client connections on restart
@@ -165,10 +160,8 @@ if (DEMO_PROJECT && !projects.has('demo')) {
   projects.set('demo', {
     name: 'demo',
     agents: [
-      { name: 'Master', model: 'claude-sonnet-4', role: 'Coordinator — decomposes tasks and manages the team', teams: ['build'], machine: '' },
-      { name: 'FrontendDev', model: '', role: 'Frontend developer', teams: ['build'], machine: '' },
-      { name: 'BackendDev', model: '', role: 'Backend developer', teams: ['build'], machine: '' },
-      { name: 'Tester', model: 'glm-4.7', role: 'QA — validates features and reports bugs', teams: ['build'], machine: '' },
+      { name: 'Master', model: 'glm-5-turbo', role: 'Oversees work — decomposes tasks and reviews output', teams: ['build'], machine: '' },
+      { name: 'Knecht', model: 'amd/qwen-3.5', role: 'Does the work — implements tasks assigned by Master', teams: ['build'], machine: '' },
     ],
     teams: [{ name: 'build', token: demoToken }],
     relayUrl: '',
@@ -188,15 +181,17 @@ const startedAt = new Date().toISOString();
 // HTTP handler — dashboard + stats API
 // =============================================================================
 
-const http = require("http");
-const https = require("https");
+import * as http from "node:http";
+import * as https from "node:https";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const DASHBOARD_HTML = fs.readFileSync(path.join(__dirname, "dashboard.html"), "utf-8");
 
-const URL = require("url");
+import { parse as urlParse } from "node:url";
 
 function handleHttpRequest(req, res) {
-  const parsed = URL.parse(req.url, true);
+  const parsed = urlParse(req.url, true);
   const pathname = parsed.pathname;
   const query = parsed.query;
 
@@ -516,8 +511,8 @@ httpServer.listen(listenPort, () => {
 });
 
 const wss = USE_TLS
-  ? new WebSocket.Server({ server: httpServer, maxPayload: 64 * 1024 })
-  : new WebSocket.Server({ port: PORT, maxPayload: 64 * 1024 });
+  ? new WebSocketServer({ server: httpServer, maxPayload: 64 * 1024 })
+  : new WebSocketServer({ port: PORT, maxPayload: 64 * 1024 });
 
 wss.on("listening", () => {
   const wsScheme = USE_TLS ? "wss" : "ws";
