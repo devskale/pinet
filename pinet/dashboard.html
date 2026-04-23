@@ -801,8 +801,6 @@ function copyBlock(id, btn){
     setTimeout(()=>{ btn.innerHTML='📋'; btn.classList.remove('copied'); }, 1500);
   }).catch(()=> fallbackCopy(text));
 }
-  }).catch(()=> fallbackCopy(all));
-}
 
 function fallbackCopy(text){
   const ta = document.createElement('textarea');
