@@ -770,8 +770,8 @@ function highlightCmd(text){
   // Simple syntax highlighting for shell
   return text
     .replace(/^(#.*)$/gm, '<span class="comment">$1</span>')
-    .replace(/^(\$ .+)$/gm, '<span class="cmd">$1</span>')
-    .replace(/(&lt;!--.*?--&gt;)/g, '<span class="comment">$1</span>');
+    .replace(/^(mkdir |echo |cd |ln |\/pinet )(.+)$/gm, '<span class="cmd">$1</span>$2')
+    .replace(/^(&lt;!--.*?--&gt;)/g, '<span class="comment">$1</span>');
 }
 
 function copyInstr(agentName){

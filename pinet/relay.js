@@ -455,14 +455,27 @@ function handleHttpRequest(req, res) {
     for (const t of project.teams) teamTokenMap[t.name] = t.token;
 
     const instructions = project.agents.map(agent => {
+      const dir = agent.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
       const teamParts = agent.teams.map(t => {
         const tok = teamTokenMap[t] || '';
         return tok ? `${t}:${tok}` : t;
       });
       const teamLogin = teamParts.length > 0 ? '@' + teamParts.join(',') : '';
       const wizardTeams = teamParts.length > 0 ? ' ' + teamParts.join(' ') : '';
-      const wizardCmd = `/pinet wizard ${relayUrl} ${TOKEN} ${machine}${wizardTeams}`;
-      const loginCmd = `/pinet ${agent.name}${teamLogin}`;
+
+      const lines = [];
+      lines.push(`# ${agent.name}${agent.role ? ' — ' + agent.role : ''}`);
+      lines.push(`mkdir -p ${dir}/.pi/extensions`);
+      // Model
+      if (agent.model) {
+        lines.push(`echo '${JSON.stringify({ defaultModel: agent.model })}' > ${dir}/.pi/settings.json`);
+      }
+      // Extension symlink (relative)
+      lines.push(`cd ${dir} && ln -sf $(realpath --relative-to=.pi/extensions ../pinet 2>/dev/null || echo '../pinet') .pi/extensions/pinet && cd ..`);
+      // Wizard + login
+      lines.push(`cd ${dir} && pi`);
+      lines.push(`/pinet wizard ${relayUrl} ${TOKEN} ${machine}${wizardTeams}`);
+      lines.push(`/pinet ${agent.name}${teamLogin}`);
 
       return {
         agent: agent.name,
@@ -470,7 +483,8 @@ function handleHttpRequest(req, res) {
         model: agent.model,
         teams: agent.teams,
         machine: agent.machine,
-        commands: [wizardCmd, loginCmd].join('\n'),
+        dir,
+        commands: lines.join('\n'),
       };
     });
 
