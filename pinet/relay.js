@@ -496,6 +496,70 @@ function handleHttpRequest(req, res) {
     return;
   }
 
+  // ── POST /api/mailbox/<agent> — human sends DM via dashboard ───────
+  const postMailboxMatch = pathname.match(/^\/api\/mailbox\/([^/]+)$/);
+  if (postMailboxMatch && req.method === 'POST') {
+    if (!checkToken()) return;
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const p = JSON.parse(body);
+        const agentName = decodeURIComponent(postMailboxMatch[1]);
+        const msgBody = (p.body || '').trim();
+        if (!msgBody) { res.writeHead(400, headers); res.end(JSON.stringify({ error: 'body required' })); return; }
+
+        const ts = new Date().toISOString();
+        const msg = { id: crypto.randomUUID(), from: 'Human', to: agentName, body: msgBody, timestamp: ts };
+
+        // Buffer for dashboard API
+        bufferPush(dmBuffers, agentName, { from: 'Human', to: agentName, body: msgBody, timestamp: ts, machine: 'dashboard' });
+
+        // Fan out to all agents so the target's sync daemon delivers it
+        broadcast({ type: 'append', from: 'dashboard', agent: 'Human', path: `mailboxes/${agentName}.jsonl`, lines: [msg] });
+
+        res.writeHead(200, headers);
+        res.end(JSON.stringify({ ok: true, from: 'Human', to: agentName, body: msgBody, timestamp: ts }));
+      } catch (e) {
+        res.writeHead(400, headers);
+        res.end(JSON.stringify({ error: 'invalid json' }));
+      }
+    });
+    return;
+  }
+
+  // ── POST /api/messages/<team> — human sends to team via dashboard ────
+  const postTeamMatch = pathname.match(/^\/api\/messages\/([^/]+)$/);
+  if (postTeamMatch && req.method === 'POST') {
+    if (!checkToken()) return;
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const p = JSON.parse(body);
+        const teamName = decodeURIComponent(postTeamMatch[1]);
+        const msgBody = (p.body || '').trim();
+        if (!msgBody) { res.writeHead(400, headers); res.end(JSON.stringify({ error: 'body required' })); return; }
+
+        const ts = new Date().toISOString();
+        const msg = { id: crypto.randomUUID(), from: 'Human', team: teamName, body: msgBody, timestamp: ts };
+
+        // Buffer for dashboard API
+        bufferPush(teamBuffers, teamName, { from: 'Human', team: teamName, body: msgBody, timestamp: ts, machine: 'dashboard' });
+
+        // Fan out
+        broadcast({ type: 'append', from: 'dashboard', agent: 'Human', path: `teams/${teamName}/messages.jsonl`, lines: [msg] });
+
+        res.writeHead(200, headers);
+        res.end(JSON.stringify({ ok: true, from: 'Human', team: teamName, body: msgBody, timestamp: ts }));
+      } catch (e) {
+        res.writeHead(400, headers);
+        res.end(JSON.stringify({ error: 'invalid json' }));
+      }
+    });
+    return;
+  }
+
   // ── Dashboard (fallback) ─────────────────────────────────────────────
   res.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-cache, no-store, must-revalidate" });
   let html = DASHBOARD_HTML;
