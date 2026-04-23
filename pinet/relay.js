@@ -475,7 +475,7 @@ function handleHttpRequest(req, res) {
       if (agent.model) {
         shellLines.push(`echo '${JSON.stringify({ defaultModel: agent.model })}' > ${dir}/.pi/settings.json`);
       }
-      shellLines.push(`cd ${dir} && ln -sf $(realpath --relative-to=.pi/extensions ../pinet 2>/dev/null || echo '../pinet') .pi/extensions/pinet && cd ..`);
+      shellLines.push(`ln -sf ../../pinet ${dir}/.pi/extensions/pinet`);
       shellLines.push(`cd ${dir} && pi`);
 
       // Pi commands — paste into the pi session
@@ -492,7 +492,7 @@ function handleHttpRequest(req, res) {
         dir,
         shellCommands: shellLines.join('\n'),
         piCommands: piLines.join('\n'),
-        commands: shellLines.join('\n') + '\n' + piLines.join('\n'), // legacy
+        commands: shellLines.join('\n') + '\n' + piLines.join('\n'),
       };
     });
 

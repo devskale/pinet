@@ -1,137 +1,58 @@
-# PiNet Quick Start — Two Agents + Dashboard
+# PiNet Quick Start
 
-## Step 1: Start the relay
-
-Open a terminal:
+## 1. Start the relay
 
 ```bash
 cd pinet && ./dev.sh
 ```
 
-You'll see:
-
-```
-╔══════════════════════════════════════╗
-║  PiNet Relay                         ║
-╠══════════════════════════════════════╣
-║  ws://localhost:7654                  ║
-║  http://localhost:8081                ║
-║  Token: testlocal123                  ║
-╚══════════════════════════════════════╝
-```
-
+That's it. It starts the relay, writes `~/.pinet/relay.json`, opens the dashboard.
 Keep this terminal open.
 
-## Step 2: Open the dashboard
+Dashboard: **http://localhost:8081** (token shown in terminal)
 
-Go to http://localhost:8081
+## 2. Start agents
 
-- Enter token: `testlocal123`
-- Click **Login**
-
-You'll see the dashboard with an empty message view.
-
-## Step 3: Create a project
-
-1. Click the **"setup"** tab (top nav)
-2. Click **"+ new project"**
-3. Fill in:
-   - **Name:** `hello`
-   - **Machine name:** `mac`
-   - **Relay URL:** `ws://localhost:7654`
-4. Under **Teams:** keep `build` (token auto-generated)
-5. Under **Agents:**
-   - Agent 1: name `Alice`, model `glm-5.1`, role `Sends tasks`, teams `build`
-   - Agent 2: name `Bob`, model `glm-4.7`, role `Does the work`, teams `build`
-6. Click **"create project"**
-
-## Step 4: Copy setup commands
-
-The dashboard shows two instruction cards — one per agent. Each has a 📋 copy button.
-
-**For Alice — open a new terminal:**
+Open a terminal for each agent:
 
 ```bash
-cd /path/to/pinet
 mkdir -p alice/.pi/extensions
-echo '{"defaultModel":"glm-5.1"}' > alice/.pi/settings.json
+ln -sf ../../pinet alice/.pi/extensions/pinet
 cd alice && pi
 ```
 
-Then in the pi session:
+Then in pi:
 
 ```
-/pinet wizard ws://localhost:7654 testlocal123 mac build:<TOKEN>
 /pinet Alice@build
 ```
 
-**For Bob — open another terminal:**
+Repeat for each agent:
 
 ```bash
-cd /path/to/pinet
 mkdir -p bob/.pi/extensions
-echo '{"defaultModel":"glm-4.7"}' > bob/.pi/settings.json
+ln -sf ../../pinet bob/.pi/extensions/pinet
 cd bob && pi
 ```
 
-Then in the pi session:
-
 ```
-/pinet wizard ws://localhost:7654 testlocal123 mac build:<TOKEN>
 /pinet Bob@build
 ```
 
-> Replace `<TOKEN>` with the token from the dashboard setup page.
+No wizard needed. No tokens to copy. `relay.json` was already written by `./dev.sh`.
 
-## Step 5: Start a conversation
+## 3. Talk
 
-In **Alice's** pi session, type:
+In Alice's pi session:
 
-> Use pinet_send to tell Bob: "Hello! Can you create a file called result.txt with the content 'hello world'?"
+> Send a DM to Bob saying "hello"
 
-Alice's LLM will call `pinet_send`. Bob receives it instantly via the relay and his LLM acts on it.
+Alice's LLM calls `pinet_send`. Bob receives it instantly.
 
-Bob's LLM will see: `receive from Alice: Hello! Can you create a file called result.txt with the content 'hello world'?`
+## 4. Watch
 
-Bob might reply:
-
-> Use pinet_send to tell Alice: "Done! result.txt created."
-
-## Step 6: Watch in the dashboard
-
-Switch back to http://localhost:8081
-
-1. Click the **"messages"** tab
-2. In the sidebar, click **#build** (under TEAMS) or **Alice/Bob** (under DMs)
-3. Messages appear in real time as chat bubbles
-
-You can also click **"overview"** to see both agents listed as online.
-
-## Step 7: Send a message yourself
-
-From either pi session, without involving the LLM:
-
-```
-/pinet msg Bob hey, how's it going?
-```
-
-This posts to the team chat with `@Bob` prefix. Bob sees it, dashboard shows it.
-
-## Summary
-
-```
-Terminal 1: ./dev.sh              ← relay + dashboard
-Terminal 2: cd alice && pi        ← Alice
-Terminal 3: cd bob && pi          ← Bob
-Browser:    localhost:8081        ← watch everything
-```
+Open **http://localhost:8081** — see messages in real time.
 
 ## Cleanup
 
-In each pi session:
-
-```
-/pinet off
-```
-
-Then Ctrl+C to exit pi. Ctrl+C in the relay terminal to stop it.
+In each pi session: `/pinet off`, then Ctrl+C. Ctrl+C to stop the relay.
