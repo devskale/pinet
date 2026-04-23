@@ -156,11 +156,16 @@ input,textarea,select{font-family:inherit;font-size:14px}
 .instr-card-header .agent-info{flex:1}
 .instr-card-header .agent-info .aname{font-weight:600;font-size:14px}
 .instr-card-header .agent-info .ameta{font-size:12px;color:var(--dim)}
-.instr-card-header .copy-btn{background:var(--accent);color:#fff;border:none;padding:.4rem .85rem;border-radius:8px;font-size:12px;font-weight:600;transition:opacity .15s;display:flex;align-items:center;gap:.3rem}
+.instr-card-header .copy-btn{background:var(--accent);color:#fff;border:none;padding:.4rem .6rem;border-radius:8px;font-size:13px;transition:opacity .15s;display:flex;align-items:center;gap:.3rem}
 .instr-card-header .copy-btn:hover{opacity:.85}
 .instr-card-header .copy-btn.copied{background:var(--green)}
 .instr-card-body{padding:0}
-.instr-card-body pre{font-family:'SF Mono',Monaco,Consolas,monospace;font-size:12px;line-height:1.7;padding:1rem;margin:0;overflow-x:auto;color:var(--text);white-space:pre}
+.instr-block{border-top:1px solid var(--border)}
+.instr-block-header{display:flex;align-items:center;justify-content:space-between;padding:.5rem 1rem;background:var(--surface2)}
+.instr-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:2px 8px;border-radius:4px}
+.terminal-label{background:#1e3a5f;color:#60a5fa}
+.pi-label{background:#1a3a2a;color:#4ade80}
+.instr-block pre{font-family:'SF Mono',Monaco,Consolas,monospace;font-size:12px;line-height:1.7;padding:1rem;margin:0;overflow-x:auto;color:var(--text);white-space:pre}
 .instr-card-body .comment{color:var(--dimmer)}
 .instr-card-body .cmd{color:var(--green)}
 .instr-card-body .string{color:var(--yellow)}
@@ -719,7 +724,7 @@ async function saveProject(){
 // ── Instructions ──────────────────────────────────────────────
 async function renderSetupInstructions(){
   const name = editProject || setupForm.name;
-  let html='<div class="setup-header"><h2>Setup Instructions</h2><p>Copy each block and paste it into the corresponding agent\'s terminal.</p></div>';
+  let html='<div class="setup-header"><h2>Setup Instructions</h2><p>For each agent: copy the terminal block into a new terminal, then paste the pi block into the pi session.</p></div>';
 
   try{
     const data = await api('/api/projects/'+encodeURIComponent(name)+'/setup');
@@ -739,15 +744,27 @@ async function renderSetupInstructions(){
       if(instr.teams?.length) metaParts.push('#'+instr.teams.join(' #'));
 
       html+='<div class="instr-card">';
+      // Header: agent name + meta
       html+='<div class="instr-card-header">';
       html+='<div class="agent-badge">'+esc(initials)+'</div>';
       html+='<div class="agent-info">';
       html+='<div class="aname">'+esc(agent)+'</div>';
       html+='<div class="ameta">'+esc(metaParts.join(' · '))+'</div>';
       html+='</div>';
-      html+='<button class="copy-btn" id="copy-'+escAttr(agent)+'" onclick="copyInstr(\''+escAttr(agent)+'\')">📋 copy</button>';
       html+='</div>';
-      html+='<div class="instr-card-body"><pre id="instr-'+escAttr(agent)+'">'+highlightCmd(esc(instr.commands))+'</pre></div>';
+
+      // Block 1: Terminal commands
+      html+='<div class="instr-block">';
+      html+='<div class="instr-block-header"><span class="instr-label terminal-label">terminal</span><button class="copy-btn" onclick="copyBlock(\'shell-'+escAttr(agent)+'\',this)">📋</button></div>';
+      html+='<pre id="shell-'+escAttr(agent)+'">'+highlightCmd(esc(instr.shellCommands))+'</pre>';
+      html+='</div>';
+
+      // Block 2: Pi commands
+      html+='<div class="instr-block">';
+      html+='<div class="instr-block-header"><span class="instr-label pi-label">pi</span><button class="copy-btn" onclick="copyBlock(\'pi-'+escAttr(agent)+'\',this)">📋</button></div>';
+      html+='<pre id="pi-'+escAttr(agent)+'">'+highlightCmd(esc(instr.piCommands))+'</pre>';
+      html+='</div>';
+
       html+='</div>';
     }
     html+='</div>';
@@ -757,7 +774,6 @@ async function renderSetupInstructions(){
     html+='<button class="btn btn-ghost" onclick="openProject(\''+escAttr(name)+'\')">← edit project</button>';
     html+='<button class="btn btn-ghost" onclick="setupState=\'list\';renderSetup()">← all projects</button>';
     html+='<div style="flex:1"></div>';
-    html+='<button class="btn btn-primary" onclick="copyAll()">📋 copy all</button>';
     html+='</div>';
 
   }catch(e){
@@ -775,30 +791,16 @@ function highlightCmd(text){
     .replace(/^(&lt;!--.*?--&gt;)/g, '<span class="comment">$1</span>');
 }
 
-function copyInstr(agentName){
-  const el = $('instr-'+agentName);
+function copyBlock(id, btn){
+  const el = $(id);
   if(!el) return;
   const text = el.textContent || el.innerText;
   navigator.clipboard.writeText(text).then(()=>{
-    const btn = $('copy-'+agentName);
-    btn.textContent = '✓ copied';
+    btn.textContent = '✓';
     btn.classList.add('copied');
-    setTimeout(()=>{ btn.innerHTML='📋 copy'; btn.classList.remove('copied'); }, 2000);
+    setTimeout(()=>{ btn.innerHTML='📋'; btn.classList.remove('copied'); }, 1500);
   }).catch(()=> fallbackCopy(text));
 }
-
-function copyAll(){
-  const blocks = document.querySelectorAll('.instr-card-body pre');
-  let all = '';
-  blocks.forEach((b,i) => {
-    if(i>0) all += '\n\n# ═══════════════════════════════════\n\n';
-    all += b.textContent || b.innerText;
-  });
-  navigator.clipboard.writeText(all).then(()=>{
-    // Brief visual feedback — could improve
-    const btns = document.querySelectorAll('.copy-btn');
-    btns.forEach(b=>{ b.textContent='✓ copied'; b.classList.add('copied'); });
-    setTimeout(()=> btns.forEach(b=>{ b.innerHTML='📋 copy'; b.classList.remove('copied'); }), 2000);
   }).catch(()=> fallbackCopy(all));
 }
 

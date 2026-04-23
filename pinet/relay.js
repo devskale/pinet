@@ -469,19 +469,19 @@ function handleHttpRequest(req, res) {
       const teamLogin = teamParts.length > 0 ? '@' + teamParts.join(',') : '';
       const wizardTeams = teamParts.length > 0 ? ' ' + teamParts.join(' ') : '';
 
-      const lines = [];
-      lines.push(`# ${agent.name}${agent.role ? ' — ' + agent.role : ''}`);
-      lines.push(`mkdir -p ${dir}/.pi/extensions`);
-      // Model
+      // Shell commands — run in terminal before pi
+      const shellLines = [];
+      shellLines.push(`mkdir -p ${dir}/.pi/extensions`);
       if (agent.model) {
-        lines.push(`echo '${JSON.stringify({ defaultModel: agent.model })}' > ${dir}/.pi/settings.json`);
+        shellLines.push(`echo '${JSON.stringify({ defaultModel: agent.model })}' > ${dir}/.pi/settings.json`);
       }
-      // Extension symlink (relative)
-      lines.push(`cd ${dir} && ln -sf $(realpath --relative-to=.pi/extensions ../pinet 2>/dev/null || echo '../pinet') .pi/extensions/pinet && cd ..`);
-      // Wizard + login
-      lines.push(`cd ${dir} && pi`);
-      lines.push(`/pinet wizard ${relayUrl} ${TOKEN} ${machine}${wizardTeams}`);
-      lines.push(`/pinet ${agent.name}${teamLogin}`);
+      shellLines.push(`cd ${dir} && ln -sf $(realpath --relative-to=.pi/extensions ../pinet 2>/dev/null || echo '../pinet') .pi/extensions/pinet && cd ..`);
+      shellLines.push(`cd ${dir} && pi`);
+
+      // Pi commands — paste into the pi session
+      const piLines = [];
+      piLines.push(`/pinet wizard ${relayUrl} ${TOKEN} ${machine}${wizardTeams}`);
+      piLines.push(`/pinet ${agent.name}${teamLogin}`);
 
       return {
         agent: agent.name,
@@ -490,7 +490,9 @@ function handleHttpRequest(req, res) {
         teams: agent.teams,
         machine: agent.machine,
         dir,
-        commands: lines.join('\n'),
+        shellCommands: shellLines.join('\n'),
+        piCommands: piLines.join('\n'),
+        commands: shellLines.join('\n') + '\n' + piLines.join('\n'), // legacy
       };
     });
 
