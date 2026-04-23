@@ -201,6 +201,11 @@ function handleHttpRequest(req, res) {
   const pathname = parsed.pathname;
   const query = parsed.query;
 
+  // Log API requests (skip dashboard HTML)
+  if (pathname.startsWith('/api/')) {
+    console.log(`[HTTP] ${req.method} ${pathname}`);
+  }
+
   // ── CORS preflight ───────────────────────────────────────────────────
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
@@ -247,49 +252,87 @@ function handleHttpRequest(req, res) {
   // ── /api/messages/<team> ─────────────────────────────────────────────
   const messagesMatch = pathname.match(/^\/api\/messages\/([^/]+)$/);
   if (messagesMatch) {
+    // POST — human sends to team from dashboard
+    if (req.method === 'POST') {
+      if (!checkToken()) return;
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        try {
+          const p = JSON.parse(body);
+          const teamName = decodeURIComponent(messagesMatch[1]);
+          const msgBody = (p.body || '').trim();
+          if (!msgBody) { res.writeHead(400, headers); res.end(JSON.stringify({ error: 'body required' })); return; }
+          const ts = new Date().toISOString();
+          const msg = { id: crypto.randomUUID(), from: 'Human', team: teamName, body: msgBody, timestamp: ts };
+          bufferPush(teamBuffers, teamName, { from: 'Human', team: teamName, body: msgBody, timestamp: ts, machine: 'dashboard' });
+          broadcast({ type: 'append', from: 'dashboard', agent: 'Human', path: `teams/${teamName}/messages.jsonl`, lines: [msg] });
+          console.log(`[dashboard → #${teamName}] ${msgBody}`);
+          res.writeHead(200, headers);
+          res.end(JSON.stringify({ ok: true, from: 'Human', team: teamName, body: msgBody, timestamp: ts }));
+        } catch (e) {
+          res.writeHead(400, headers);
+          res.end(JSON.stringify({ error: 'invalid json' }));
+        }
+      });
+      return;
+    }
+    // GET — read messages
     if (!checkToken()) return;
     const teamName = decodeURIComponent(messagesMatch[1]);
     const limit = Math.min(parseInt(query.limit, 10) || 50, 200);
-    const before = query.before; // ISO timestamp — return messages before this
-
+    const before = query.before;
     if (!teams.has(teamName)) {
       res.writeHead(404, headers);
       res.end(JSON.stringify({ error: `team "${teamName}" not found` }));
       return;
     }
-
     let messages = teamBuffers.get(teamName) || [];
     if (before) messages = messages.filter(m => m.timestamp < before);
     messages = messages.slice(-limit);
-
     res.writeHead(200, headers);
-    res.end(JSON.stringify({
-      team: teamName,
-      members: [...teams.get(teamName).agents],
-      count: messages.length,
-      messages,
-    }));
+    res.end(JSON.stringify({ team: teamName, members: [...teams.get(teamName).agents], count: messages.length, messages }));
     return;
   }
 
   // ── /api/mailbox/<agent> ─────────────────────────────────────────────
   const mailboxMatch = pathname.match(/^\/api\/mailbox\/([^/]+)$/);
   if (mailboxMatch) {
+    // POST — human DMs agent from dashboard
+    if (req.method === 'POST') {
+      if (!checkToken()) return;
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        try {
+          const p = JSON.parse(body);
+          const agentName = decodeURIComponent(mailboxMatch[1]);
+          const msgBody = (p.body || '').trim();
+          if (!msgBody) { res.writeHead(400, headers); res.end(JSON.stringify({ error: 'body required' })); return; }
+          const ts = new Date().toISOString();
+          const msg = { id: crypto.randomUUID(), from: 'Human', to: agentName, body: msgBody, timestamp: ts };
+          bufferPush(dmBuffers, agentName, { from: 'Human', to: agentName, body: msgBody, timestamp: ts, machine: 'dashboard' });
+          broadcast({ type: 'append', from: 'dashboard', agent: 'Human', path: `mailboxes/${agentName}.jsonl`, lines: [msg] });
+          console.log(`[dashboard → ${agentName}] ${msgBody}`);
+          res.writeHead(200, headers);
+          res.end(JSON.stringify({ ok: true, from: 'Human', to: agentName, body: msgBody, timestamp: ts }));
+        } catch (e) {
+          res.writeHead(400, headers);
+          res.end(JSON.stringify({ error: 'invalid json' }));
+        }
+      });
+      return;
+    }
+    // GET — read mailbox
     if (!checkToken()) return;
     const agentName = decodeURIComponent(mailboxMatch[1]);
     const limit = Math.min(parseInt(query.limit, 10) || 50, 200);
     const before = query.before;
-
     let messages = dmBuffers.get(agentName) || [];
     if (before) messages = messages.filter(m => m.timestamp < before);
     messages = messages.slice(-limit);
-
     res.writeHead(200, headers);
-    res.end(JSON.stringify({
-      agent: agentName,
-      count: messages.length,
-      messages,
-    }));
+    res.end(JSON.stringify({ agent: agentName, count: messages.length, messages }));
     return;
   }
 
@@ -493,70 +536,6 @@ function handleHttpRequest(req, res) {
 
     res.writeHead(200, headers);
     res.end(JSON.stringify({ project: pName, instructions }));
-    return;
-  }
-
-  // ── POST /api/mailbox/<agent> — human sends DM via dashboard ───────
-  const postMailboxMatch = pathname.match(/^\/api\/mailbox\/([^/]+)$/);
-  if (postMailboxMatch && req.method === 'POST') {
-    if (!checkToken()) return;
-    let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', () => {
-      try {
-        const p = JSON.parse(body);
-        const agentName = decodeURIComponent(postMailboxMatch[1]);
-        const msgBody = (p.body || '').trim();
-        if (!msgBody) { res.writeHead(400, headers); res.end(JSON.stringify({ error: 'body required' })); return; }
-
-        const ts = new Date().toISOString();
-        const msg = { id: crypto.randomUUID(), from: 'Human', to: agentName, body: msgBody, timestamp: ts };
-
-        // Buffer for dashboard API
-        bufferPush(dmBuffers, agentName, { from: 'Human', to: agentName, body: msgBody, timestamp: ts, machine: 'dashboard' });
-
-        // Fan out to all agents so the target's sync daemon delivers it
-        broadcast({ type: 'append', from: 'dashboard', agent: 'Human', path: `mailboxes/${agentName}.jsonl`, lines: [msg] });
-
-        res.writeHead(200, headers);
-        res.end(JSON.stringify({ ok: true, from: 'Human', to: agentName, body: msgBody, timestamp: ts }));
-      } catch (e) {
-        res.writeHead(400, headers);
-        res.end(JSON.stringify({ error: 'invalid json' }));
-      }
-    });
-    return;
-  }
-
-  // ── POST /api/messages/<team> — human sends to team via dashboard ────
-  const postTeamMatch = pathname.match(/^\/api\/messages\/([^/]+)$/);
-  if (postTeamMatch && req.method === 'POST') {
-    if (!checkToken()) return;
-    let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', () => {
-      try {
-        const p = JSON.parse(body);
-        const teamName = decodeURIComponent(postTeamMatch[1]);
-        const msgBody = (p.body || '').trim();
-        if (!msgBody) { res.writeHead(400, headers); res.end(JSON.stringify({ error: 'body required' })); return; }
-
-        const ts = new Date().toISOString();
-        const msg = { id: crypto.randomUUID(), from: 'Human', team: teamName, body: msgBody, timestamp: ts };
-
-        // Buffer for dashboard API
-        bufferPush(teamBuffers, teamName, { from: 'Human', team: teamName, body: msgBody, timestamp: ts, machine: 'dashboard' });
-
-        // Fan out
-        broadcast({ type: 'append', from: 'dashboard', agent: 'Human', path: `teams/${teamName}/messages.jsonl`, lines: [msg] });
-
-        res.writeHead(200, headers);
-        res.end(JSON.stringify({ ok: true, from: 'Human', team: teamName, body: msgBody, timestamp: ts }));
-      } catch (e) {
-        res.writeHead(400, headers);
-        res.end(JSON.stringify({ error: 'invalid json' }));
-      }
-    });
     return;
   }
 
