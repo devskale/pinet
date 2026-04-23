@@ -462,12 +462,8 @@ function handleHttpRequest(req, res) {
 
     const instructions = project.agents.map(agent => {
       const dir = agent.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
-      const teamParts = agent.teams.map(t => {
-        const tok = teamTokenMap[t] || '';
-        return tok ? `${t}:${tok}` : t;
-      });
+      const teamParts = agent.teams.map(t => t.name || t);
       const teamLogin = teamParts.length > 0 ? '@' + teamParts.join(',') : '';
-      const wizardTeams = teamParts.length > 0 ? ' ' + teamParts.join(' ') : '';
 
       // Shell commands — run in terminal before pi
       const shellLines = [];
@@ -478,9 +474,8 @@ function handleHttpRequest(req, res) {
       shellLines.push(`ln -sf ../../pinet ${dir}/.pi/extensions/pinet`);
       shellLines.push(`cd ${dir} && pi`);
 
-      // Pi commands — paste into the pi session
+      // Pi commands — just login, relay.json already written by dev.sh
       const piLines = [];
-      piLines.push(`/pinet wizard ${relayUrl} ${TOKEN} ${machine}${wizardTeams}`);
       piLines.push(`/pinet ${agent.name}${teamLogin}`);
 
       return {
