@@ -476,8 +476,9 @@ async function loadPreviews(){
 
 const MODEL_OPTIONS = [
   { value:'', label:'(auto)' },
-  { value:'glm-5-turbo', label:'GLM 5 Turbo' },
   { value:'glm-5.1', label:'GLM 5.1' },
+  { value:'glm-5-turbo', label:'GLM 5 Turbo' },
+  { value:'glm-5', label:'GLM 5' },
   { value:'glm-4.7', label:'GLM 4.7' },
   { value:'amd/qwen-3.5', label:'Qwen 3.5 (AMD)' },
   { value:'qwen-3.5', label:'Qwen 3.5' },
@@ -537,10 +538,10 @@ async function renderSetupList(){
 function newProject(){
   editProject = null;
   setupForm = { name:'', agents:[
-    { name:'Master', model:'claude-sonnet-4', role:'Coordinator — decomposes tasks and manages the team', teams:['build'], machine:'' },
-    { name:'FrontendDev', model:'', role:'Frontend developer', teams:['build'], machine:'' },
-    { name:'BackendDev', model:'', role:'Backend developer', teams:['build'], machine:'' },
-    { name:'Tester', model:'', role:'QA — validates features and reports bugs', teams:['build'], machine:'' },
+    { name:'Master', model:'glm-5.1', role:'Coordinator — decomposes tasks and manages the team', teams:['build'], machine:'' },
+    { name:'FrontendDev', model:'glm-4.7', role:'Frontend developer', teams:['build'], machine:'' },
+    { name:'BackendDev', model:'glm-4.7', role:'Backend developer', teams:['build'], machine:'' },
+    { name:'Tester', model:'glm-4.7', role:'QA — validates features and reports bugs', teams:['build'], machine:'' },
   ], teams:[{ name:'build', token:'' }], relayUrl:'', machine:'' };
   setupState = 'form';
   renderSetup();

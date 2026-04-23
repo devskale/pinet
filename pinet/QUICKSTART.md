@@ -41,8 +41,8 @@ You'll see the dashboard with an empty message view.
    - **Relay URL:** `ws://localhost:7654`
 4. Under **Teams:** keep `build` (token auto-generated)
 5. Under **Agents:**
-   - Agent 1: name `Alice`, model `claude-sonnet-4`, role `Sends tasks`, teams `build`
-   - Agent 2: name `Bob`, model `claude-sonnet-4`, role `Does the work`, teams `build`
+   - Agent 1: name `Alice`, model `glm-5.1`, role `Sends tasks`, teams `build`
+   - Agent 2: name `Bob`, model `glm-4.7`, role `Does the work`, teams `build`
 6. Click **"create project"**
 
 ## Step 4: Copy setup commands
@@ -54,7 +54,7 @@ The dashboard shows two instruction cards — one per agent. Each has a 📋 cop
 ```bash
 cd /path/to/pinet
 mkdir -p alice/.pi/extensions
-echo '{"defaultModel":"claude-sonnet-4"}' > alice/.pi/settings.json
+echo '{"defaultModel":"glm-5.1"}' > alice/.pi/settings.json
 cd alice && pi
 ```
 
@@ -70,7 +70,7 @@ Then in the pi session:
 ```bash
 cd /path/to/pinet
 mkdir -p bob/.pi/extensions
-echo '{"defaultModel":"claude-sonnet-4"}' > bob/.pi/settings.json
+echo '{"defaultModel":"glm-4.7"}' > bob/.pi/settings.json
 cd bob && pi
 ```
 

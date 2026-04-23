@@ -160,8 +160,8 @@ if (DEMO_PROJECT && !projects.has('demo')) {
   projects.set('demo', {
     name: 'demo',
     agents: [
-      { name: 'Master', model: 'glm-5-turbo', role: 'Oversees work — decomposes tasks and reviews output', teams: ['build'], machine: '' },
-      { name: 'Knecht', model: 'amd/qwen-3.5', role: 'Does the work — implements tasks assigned by Master', teams: ['build'], machine: '' },
+      { name: 'Master', model: 'glm-5.1', role: 'Oversees work — decomposes tasks and reviews output', teams: ['build'], machine: '' },
+      { name: 'Knecht', model: 'glm-4.7', role: 'Does the work — implements tasks assigned by Master', teams: ['build'], machine: '' },
     ],
     teams: [{ name: 'build', token: demoToken }],
     relayUrl: '',
