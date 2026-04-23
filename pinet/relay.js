@@ -188,10 +188,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const DASHBOARD_HTML = fs.readFileSync(path.join(__dirname, "dashboard.html"), "utf-8");
 
-import { parse as urlParse } from "node:url";
+// URL helper — WHATWG API (no deprecated url.parse)
+function parseUrl(reqUrl) {
+  const u = new URL(reqUrl, 'http://localhost');
+  const query = {};
+  for (const [k, v] of u.searchParams) query[k] = v;
+  return { pathname: u.pathname, query };
+}
 
 function handleHttpRequest(req, res) {
-  const parsed = urlParse(req.url, true);
+  const parsed = parseUrl(req.url);
   const pathname = parsed.pathname;
   const query = parsed.query;
 
