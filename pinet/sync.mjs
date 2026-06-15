@@ -265,7 +265,7 @@ function poll() {
     const ownLines = newLines.filter((l) => l && l.from === myAgent);
 
     if (ownLines.length > 0) {
-      const relativePath = path.relative(PINET_DIR, filePath);
+      const relativePath = path.relative(PINET_DIR, filePath).split(path.sep).join("/");
       ws.send(JSON.stringify({
         type: "append",
         from: config.machine,

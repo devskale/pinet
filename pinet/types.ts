@@ -5,14 +5,18 @@
  * All interfaces here are pure data — no behavior.
  */
 
+import * as os from "node:os";
 import * as path from "node:path";
 
 // =============================================================================
 // Path configuration
 // =============================================================================
 
-/** Root directory for all PiNet state */
-export const PINET_DIR = path.join(process.env.HOME || "~", ".pinet");
+/** Root directory for all PiNet state.
+ *  Override with PINET_DIR env var (used by tests); defaults to ~/.pinet.
+ *  Uses os.homedir() so it resolves correctly even when HOME is unset
+ *  (e.g. PowerShell on Windows, which only sets USERPROFILE). */
+export const PINET_DIR = process.env.PINET_DIR || path.join(os.homedir(), ".pinet");
 
 /** Max lines kept in a JSONL file before compaction */
 export const MAX_JSONL_LINES = 500;

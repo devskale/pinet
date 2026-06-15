@@ -292,6 +292,61 @@ function handleHttpRequest(req, res) {
     return;
   }
 
+  // ── POST /api/send — inject a message (dashboard compose box) ────────
+  // Body: { team: "build", message: "hi" }        → team broadcast
+  //    OR { agent: "Master", message: "hi" }      → DM to one agent
+  //    optional: from (default "dashboard")
+  //
+  // Builds the same `append` payload a sync daemon would send, buffers it
+  // for the browser API, and fans it out to every connected agent. Because
+  // `from`/`agent` is "dashboard", no agent self-filters it out.
+  if (pathname === "/api/send" && req.method === "POST") {
+    if (!checkToken()) return;
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      let p;
+      try { p = JSON.parse(body); } catch {
+        res.writeHead(400, headers); res.end(JSON.stringify({ error: "invalid json" })); return;
+      }
+      const message = (p.message || "").toString();
+      const sender = (p.from || "dashboard").toString().slice(0, 40) || "dashboard";
+      if (!message.trim()) {
+        res.writeHead(400, headers); res.end(JSON.stringify({ error: "message required" })); return;
+      }
+
+      const id = crypto.randomUUID();
+      const ts = new Date().toISOString();
+      let relPath, line, bufKey;
+
+      if (p.team) {
+        const teamName = String(p.team);
+        if (!teams.has(teamName)) {
+          res.writeHead(404, headers); res.end(JSON.stringify({ error: `team "${teamName}" not found` })); return;
+        }
+        relPath = `teams/${teamName}/messages.jsonl`;
+        line = { id, from: sender, team: teamName, body: message, timestamp: ts };
+        bufferPush(teamBuffers, teamName, { from: sender, team: teamName, body: message, timestamp: ts, machine: "dashboard" });
+        bufKey = `team:${teamName}`;
+      } else if (p.agent) {
+        const recipient = String(p.agent);
+        relPath = `mailboxes/${recipient}.mailbox.jsonl`;
+        line = { id, from: sender, to: recipient, body: message, timestamp: ts };
+        bufferPush(dmBuffers, recipient, { from: sender, to: recipient, body: message, timestamp: ts, machine: "dashboard" });
+        bufKey = `dm:${recipient}`;
+      } else {
+        res.writeHead(400, headers); res.end(JSON.stringify({ error: "provide 'team' or 'agent'" })); return;
+      }
+
+      // Fan out to every connected agent exactly like a sync daemon append.
+      broadcast({ type: "append", from: "dashboard", agent: "dashboard", path: relPath, lines: [JSON.stringify(line)] });
+
+      res.writeHead(200, headers);
+      res.end(JSON.stringify({ ok: true, id, to: bufKey }));
+    });
+    return;
+  }
+
   // ── /api/conversations ──────────────────────────────────────────────
   if (pathname === "/api/conversations") {
     if (!checkToken()) return;
@@ -660,8 +715,8 @@ wss.on("connection", (ws, req) => {
         const relPath = msg.path || "";
         const ts = new Date().toISOString();
 
-        // Team messages: path starts with "teams/<name>/"
-        const teamMatch = relPath.match(/^teams\/([^/]+)\//);
+        // Team messages: path starts with "teams/<name>/" (accept either slash)
+        const teamMatch = relPath.match(/^teams[\\/]([^\\/]+)[\\/]/);
         if (teamMatch) {
           const teamName = teamMatch[1];
           for (const line of msg.lines) {
@@ -678,7 +733,7 @@ wss.on("connection", (ws, req) => {
         }
 
         // DMs: path starts with "mailboxes/<name>."
-        const dmMatch = relPath.match(/^mailboxes\/([^./]+)/);
+        const dmMatch = relPath.match(/^mailboxes[\\/]([^\\/.]+)/);
         if (dmMatch) {
           const recipient = dmMatch[1];
           for (const line of msg.lines) {

@@ -72,6 +72,12 @@ input,textarea,select{font-family:inherit;font-size:14px}
 .msg.other{align-self:flex-start}
 .msg.self{align-self:flex-end}
 .msg-bubble{padding:.5rem .75rem;border-radius:12px;font-size:13px;line-height:1.5;word-break:break-word}
+.composer{display:flex;gap:.5rem;padding:.75rem 1rem;border-top:1px solid var(--border);background:var(--surface);flex-shrink:0}
+.composer input{flex:1;padding:.65rem .85rem;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px}
+.composer input:focus{outline:none;border-color:var(--accent)}
+.composer button{padding:.65rem 1.1rem;border-radius:10px;border:none;background:var(--accent);color:#fff;font-size:13px;font-weight:600;transition:opacity .15s;cursor:pointer}
+.composer button:hover{opacity:.85}
+.composer button:disabled{opacity:.4;cursor:default}
 .msg.other .msg-bubble{background:var(--surface2);border-bottom-left-radius:4px}
 .msg.self .msg-bubble{background:#1e3a5f;border-bottom-right-radius:4px}
 .msg-meta{font-size:11px;color:var(--dimmer);margin-top:2px;padding:0 4px}
@@ -216,6 +222,10 @@ input,textarea,select{font-family:inherit;font-size:14px}
         <div id="chat-active" class="hidden" style="display:flex;flex-direction:column;height:100%">
           <div class="chat-header" id="chat-header"></div>
           <div class="messages" id="chat-messages"></div>
+          <div class="composer">
+            <input id="msg-input" type="text" placeholder="send a message..." autocomplete="off">
+            <button id="msg-send" onclick="sendMessage()">send</button>
+          </div>
         </div>
       </div>
     </div>
@@ -234,7 +244,9 @@ const TOKEN_KEY = 'pinet-token';
 var TOKEN = sessionStorage.getItem(TOKEN_KEY) || '';
 
 // API base path — change if served behind a reverse proxy under a prefix
-const API_BASE = '/pinet/dashboard';
+// Derive API base from the page URL so the dashboard works both standalone
+// (served at "/") and behind the nginx proxy (served at "/pinet/dashboard/").
+const API_BASE = window.location.pathname.replace(/[^\/]*$/, '').replace(/\/$/, '');
 
 // Auto-login from ?token= query param
 (function(){
@@ -423,6 +435,27 @@ function renderMessages(messages){
   $('chat-messages').innerHTML=html;
   $('chat-messages').scrollTop=$('chat-messages').scrollHeight;
 }
+
+// ── Send a message via the dashboard ────────────────────────────
+async function sendMessage(){
+  const input=$('msg-input'); const message=input.value.trim();
+  if(!message||!selectedType) return;
+  const btn=$('msg-send');
+  input.value=''; btn.disabled=true;
+  try{
+    const body={ message, from: 'admin' };
+    if(selectedType==='team') body.team=selectedId;
+    else body.agent=selectedId;
+    await api('/api/send',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    loadChat(); // message is buffered synchronously — shows immediately
+  }catch(e){
+    input.value=message; // restore on failure
+    $('chat-messages').innerHTML='<div style="text-align:center;color:var(--red);padding:1rem">send failed: '+esc(e.message)+'</div>';
+  }finally{
+    btn.disabled=false; input.focus();
+  }
+}
+$('msg-input').addEventListener('keydown', e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); sendMessage(); } });
 
 async function loadPreviews(){
   try{
