@@ -233,6 +233,9 @@ input,textarea,select{font-family:inherit;font-size:14px}
 const TOKEN_KEY = 'pinet-token';
 var TOKEN = sessionStorage.getItem(TOKEN_KEY) || '';
 
+// API base path — change if served behind a reverse proxy under a prefix
+const API_BASE = '/pinet/dashboard';
+
 // Auto-login from ?token= query param
 (function(){
   const params = new URLSearchParams(window.location.search);
@@ -267,7 +270,7 @@ function fmtFull(iso){
 }
 
 async function api(path, opts){
-  const url = path + (path.includes('?') ? '&' : '?') + 'token=' + TOKEN;
+  const url = API_BASE + path + (path.includes('?') ? '&' : '?') + 'token=' + TOKEN;
   const r = await fetch(url, opts);
   if(r.status === 401) throw new Error('unauthorized');
   return r.json();
