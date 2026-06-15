@@ -28,3 +28,12 @@ pi-mono
 testsetup.md
 pi
 coding-agent
+
+# Agent workspace runtime data (extension state, not source)
+agents/*/.pi/
+agents/*/.pinet/
+agents/*/~/
+
+# Dev/runtime logs
+pinet/sync-debug.log
+pinet/relay-debug.log

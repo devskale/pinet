@@ -152,6 +152,8 @@ function connect() {
     if (msg.type === "welcome") {
       console.log(`Connected as ${msg.agent}. Network: ${msg.network?.totalAgents || "?"}/${msg.network?.maxAgents || "?"} agents`);
       reconnectAttempts = 0;
+      // Tell the parent (extension) we're truly online on the relay.
+      try { process.send({ type: "pinet-status", status: "online", agent: msg.agent, agents: msg.network?.totalAgents }); } catch { /* no parent */ }
       onConnected();
       return;
     }
@@ -176,6 +178,18 @@ function connect() {
 
   ws.on("close", (code, reason) => {
     console.log(`Disconnected: ${code} ${reason || ""}`);
+    // Auth-fatal codes (relay refused us) — do NOT loop; report and exit so the
+    // extension shows a truthful error instead of an endless reconnect spin.
+    //   4001 bad token / auth timeout  4010 name taken  4011 network full
+    //   4012 bad team token  4013 team full  4014 too many teams  4015 name required
+    if (code >= 4010 && code <= 4015 || code === 4001) {
+      const why = String(reason || RELAY_CLOSE[code] || `relay refused (code ${code})`);
+      try { process.send({ type: "pinet-status", status: "offline", fatal: true, code, reason: why }); } catch { /* no parent */ }
+      console.error(`Auth rejected by relay (code ${code}): ${why}`);
+      process.exit(1);
+    }
+    // Transient (1006/4002/4003) — report and reconnect.
+    try { process.send({ type: "pinet-status", status: "offline", code, reason: String(reason || "") }); } catch { /* no parent */ }
     reconnect();
   });
 
@@ -193,6 +207,17 @@ function reconnect() {
   console.log(`Reconnecting in ${(delay / 1000).toFixed(1)}s...`);
   setTimeout(connect, delay);
 }
+
+// Relay close-code meanings (for status reporting).
+const RELAY_CLOSE = {
+  4001: "bad network token or auth timeout",
+  4010: "agent name already taken",
+  4011: "network full",
+  4012: "bad team token",
+  4013: "team full",
+  4014: "too many teams",
+  4015: "agent name required",
+};
 
 // =============================================================================
 // After connected — snapshot current state, start polling

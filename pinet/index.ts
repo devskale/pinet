@@ -55,6 +55,8 @@ let syncProcess: child_process.ChildProcess | null = null;
 let piRef: ExtensionAPI | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let presenceSweeperTimer: ReturnType<typeof setInterval> | null = null;
+let syncConnected = false;   // has the sync daemon confirmed a relay connection?
+let syncFatalSeen = false;   // did the sync daemon report a fatal auth failure?
 
 // =============================================================================
 // Parse "Name@team1,team2"
@@ -122,6 +124,8 @@ function doLogin(pi: ExtensionAPI, name: string, teams: string[], teamRoles: Rec
   // Set identity
   myName = name;
   myTeams = teams;
+  syncConnected = false;
+  syncFatalSeen = false;
 
   // Persist
   writeIdentity(name);
@@ -141,17 +145,26 @@ function doLogin(pi: ExtensionAPI, name: string, teams: string[], teamRoles: Rec
   if (teams.length > 0) registerTeamTools(pi);
 
   // Start sync daemon if relay.json exists
+  const relayConfigured = exists(pinetPath("relay.json"));
   startSyncDaemon(ctx);
 
   // Notify user
   const backlog =
     readJsonl(pinetPath("mailboxes", `${name}.mailbox.jsonl`), getPersonalLineCount()).length;
 
-  const lines = [`${name} online`];
-  if (teams.length > 0) lines.push(teams.map((t) => `#${t}`).join(", "));
-  if (backlog > 0) lines.push(`${backlog} DMs`);
-
-  ctx.ui?.notify?.(lines.join(" "), "success");
+  // If a relay is configured, the sync daemon will announce the REAL online
+  // status once it connects (or an error if the relay refuses). Say
+  // "connecting..." meanwhile. Local-only (no relay) → announce online now.
+  if (relayConfigured) {
+    const parts = [`${name} connecting…`];
+    if (teams.length > 0) parts.push(teams.map((t) => `#${t}`).join(", "));
+    ctx.ui?.notify?.(parts.join(" "), "info");
+  } else {
+    const lines = [`${name} online (local)`];
+    if (teams.length > 0) lines.push(teams.map((t) => `#${t}`).join(", "));
+    if (backlog > 0) lines.push(`${backlog} DMs`);
+    ctx.ui?.notify?.(lines.join(" "), "success");
+  }
 
   // Presence heartbeat — refresh lastSeen every 30s
   heartbeatTimer = setInterval(() => {
@@ -203,7 +216,7 @@ function showStatus(ctx: CommandContext) {
   const dmUnread =
     readJsonl(pinetPath("mailboxes", `${myName}.mailbox.jsonl`), getPersonalLineCount()).length;
 
-  const lines = [`${myName}`];
+  const lines = [`${myName}${syncConnected ? "" : " (offline on relay)"}`];
   if (myTeams.length > 0) {
     lines.push(
       myTeams
@@ -250,15 +263,34 @@ function startSyncDaemon(ctx: CommandContext) {
   });
 
   syncProcess.on("exit", (code) => {
-    if (code && code !== 0) {
+    // Only report if we never heard a fatal status from the daemon (which
+    // already exited with this code and surfaced a clear reason).
+    if (code && code !== 0 && !syncFatalSeen) {
       ctx.ui?.notify?.(`Sync daemon exited (code ${code})`, "warning");
     }
     syncProcess = null;
   });
 
-  // Relay IPC: deliver messages from sync daemon directly to agent
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // Truthful relay status: announce online/error based on what the sync
+  // daemon actually reports, not on optimistic assumptions.
   syncProcess.on("message", (msg: any) => {
+    if (msg.type === "pinet-status") {
+      if (msg.status === "online") {
+        syncConnected = true;
+        const parts = [`${myName} online`, myTeams.map((t) => `#${t}`).join(", ") || ""];
+        if (msg.agents != null) parts.push(`(${msg.agents} on relay)`);
+        ctx.ui?.notify?.(parts.filter(Boolean).join(" "), "success");
+      } else {
+        // offline (transient reconnect or fatal)
+        syncConnected = false;
+        if (msg.fatal) {
+          syncFatalSeen = true;
+          ctx.ui?.notify?.(`Not online — relay rejected: ${msg.reason} (code ${msg.code})`, "error");
+        }
+        // transient: silent — the daemon will reconnect and report online again
+      }
+      return;
+    }
     if (msg.type !== "pinet-deliver") return;
     if (!myName || !piRef) return;
 
