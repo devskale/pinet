@@ -7,10 +7,11 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocket } from "ws";
 
-const PINET_DIR = path.join(process.env.HOME || "~", ".pinet");
+const PINET_DIR = process.env.PINET_DIR || path.join(os.homedir(), ".pinet");
 const RELAY_CONFIG = path.join(PINET_DIR, "relay.json");
 
 // Allow override: PINET_AGENT_NAME=BackendDev node sync.js
@@ -31,8 +32,10 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_DELAY = 30000;
 const POLL_MS = 2000;
 
-// Track line counts per file to detect new lines
-let fileLineCounts = new Map();
+// Cursor of the last-synced line per file: { ts, id } (ISO timestamp + unique id).
+// A line is "new" iff its (ts,id) is strictly greater than the cursor. This is
+// immune to compaction, which only ever drops the head (older lines).
+let fileCursors = new Map();
 let snapshotFiles = new Set();
 
 // Timestamp of last remote write per file (to skip syncing our own writes)
@@ -53,18 +56,45 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf-8"));
 }
 
-function readJsonl(filePath, offset) {
+/** Read and parse every JSONL line in a file. Malformed lines are dropped. */
+function readParsed(filePath) {
   if (!fs.existsSync(filePath)) return [];
   const content = fs.readFileSync(filePath, "utf-8").trim();
   if (!content) return [];
-  const lines = content.split("\n").filter((l) => l.trim());
-  return offset > 0 ? lines.slice(offset) : lines;
+  const out = [];
+  for (const l of content.split("\n")) {
+    if (!l.trim()) continue;
+    try { out.push(JSON.parse(l)); } catch { /* malformed line — skip */ }
+  }
+  return out;
 }
 
-function lineCount(filePath) {
-  if (!fs.existsSync(filePath)) return 0;
-  const content = fs.readFileSync(filePath, "utf-8").trim();
-  return content ? content.split("\n").length : 0;
+/** Ordering key for a parsed line: (timestamp, id). Both message shapes
+ *  (PersonalMessage / TeamMessage) carry these; falls back to created/lastSeen
+ *  for non-message logs (e.g. identities.jsonl). */
+function cursorOf(obj) {
+  if (!obj || typeof obj !== "object") return { ts: "", id: "" };
+  return {
+    ts: String(obj.timestamp || obj.created || obj.lastSeen || ""),
+    id: String(obj.id || ""),
+  };
+}
+
+/** Lexicographic (ts, id) comparison. Compaction-safe: a line counts as new
+ *  iff its key is strictly greater than the cursor, no matter how many head
+ *  lines were removed. */
+function compareCursor(a, b) {
+  if (a.ts < b.ts) return -1;
+  if (a.ts > b.ts) return 1;
+  if (a.id < b.id) return -1;
+  if (a.id > b.id) return 1;
+  return 0;
+}
+
+/** Cursor of the last parsed line in a file, or null if the file is empty. */
+function lastLineCursor(filePath) {
+  const lines = readParsed(filePath);
+  return lines.length ? cursorOf(lines[lines.length - 1]) : null;
 }
 
 function ensureDir(dir) {
@@ -169,13 +199,14 @@ function reconnect() {
 // =============================================================================
 
 function onConnected() {
-  // Snapshot all current file line counts
+  // Snapshot: cursor = last line of each existing file, so pre-existing
+  // history isn't re-synced on connect.
   cachedFiles = findAllFiles(PINET_DIR);
   cachedFilesSet = new Set(cachedFiles);
   lastRescanTime = Date.now();
   snapshotFiles = new Set(cachedFiles);
   for (const f of cachedFiles) {
-    fileLineCounts.set(f, lineCount(f));
+    fileCursors.set(f, lastLineCursor(f));
   }
   console.log(`Snapshot: ${cachedFiles.length} files tracked`);
 
@@ -206,50 +237,46 @@ function poll() {
     lastRescanTime = now;
   }
 
+  const myAgent = AGENT_OVERRIDE || config.agent || config.machine;
+
   for (const filePath of cachedFiles) {
     // Skip if we just wrote this file from a remote change (within last 3 seconds)
     const lastRemote = remoteWriteTime.get(filePath) || 0;
     if (Date.now() - lastRemote < 3000) continue;
 
-    const currentLines = lineCount(filePath);
-    // New files (not in snapshot) start at 0 so we sync all their lines
-    const previousCount = fileLineCounts.has(filePath)
-      ? fileLineCounts.get(filePath)
-      : (snapshotFiles.has(filePath) ? currentLines : 0);
+    const lines = readParsed(filePath);
+    const lastCursor = lines.length ? cursorOf(lines[lines.length - 1]) : null;
 
-    if (currentLines > previousCount) {
-      // New lines found!
-      const newLines = readJsonl(filePath, previousCount);
-
-      // Only sync our own messages — other agents' messages come via relay
-      const myAgent = AGENT_OVERRIDE || config.agent || config.machine;
-      const ownLines = newLines.filter(l => {
-        try {
-          const obj = typeof l === "string" ? JSON.parse(l) : l;
-          return obj.from === myAgent;
-        } catch { return true; }
-      });
-
-      if (ownLines.length > 0) {
-        const relativePath = path.relative(PINET_DIR, filePath);
-        fileLineCounts.set(filePath, currentLines);
-
-        ws.send(JSON.stringify({
-          type: "append",
-          from: config.machine,
-          path: relativePath,
-          lines: ownLines,
-        }));
-
-        console.log(`↑ Synced ${ownLines.length} line(s): ${relativePath}`);
-      } else {
-        // Still advance the line count so we don't re-read these
-        fileLineCounts.set(filePath, currentLines);
-      }
-    } else {
-      // Update count even if no change (file might have been replaced)
-      fileLineCounts.set(filePath, currentLines);
+    // First sight after snapshot of a brand-new file → sync from line 0.
+    // (Files present at snapshot already had their cursor set in onConnected.)
+    if (!fileCursors.has(filePath) && !snapshotFiles.has(filePath)) {
+      fileCursors.set(filePath, null);
     }
+    const cursor = fileCursors.get(filePath);
+
+    // Lines strictly newer than the cursor. Compaction-safe: even if the
+    // cursor line itself was dropped from the head, every surviving newer
+    // line still compares greater.
+    const newLines = cursor
+      ? lines.filter((l) => compareCursor(cursorOf(l), cursor) > 0)
+      : lines;
+
+    // Only sync our own messages — other agents' messages come via relay
+    const ownLines = newLines.filter((l) => l && l.from === myAgent);
+
+    if (ownLines.length > 0) {
+      const relativePath = path.relative(PINET_DIR, filePath);
+      ws.send(JSON.stringify({
+        type: "append",
+        from: config.machine,
+        path: relativePath,
+        lines: ownLines.map((l) => JSON.stringify(l)),
+      }));
+      console.log(`↑ Synced ${ownLines.length} line(s): ${relativePath}`);
+    }
+
+    // Always advance the cursor to the last line so we don't rescan.
+    if (lastCursor) fileCursors.set(filePath, lastCursor);
   }
 }
 
@@ -280,16 +307,16 @@ function handleRemoteChange(msg) {
   try {
     if (msg.type === "append" && msg.lines) {
       if (sameMachine) {
-        // File already has these lines — just advance our counter
-        const newCount = lineCount(filePath);
-        fileLineCounts.set(filePath, newCount);
+        // File already has these lines — just advance our cursor past them.
+        const lc = lastLineCursor(filePath);
+        if (lc) fileCursors.set(filePath, lc);
       } else {
         // Cross-machine: write to local file
         remoteWriteTime.set(filePath, Date.now());
         const lines = msg.lines.map(l => typeof l === "string" ? l : JSON.stringify(l));
         fs.appendFileSync(filePath, lines.join("\n") + "\n");
-        const newCount = lineCount(filePath);
-        fileLineCounts.set(filePath, newCount);
+        const lc = lastLineCursor(filePath);
+        if (lc) fileCursors.set(filePath, lc);
       }
       // Always deliver via IPC so the pi agent sees the message
       try { process.send({ type: "pinet-deliver", channel: "team", path: msg.path, from: msg.from, agent: msg.agent, lines: msg.lines }); } catch { /* parent gone */ }

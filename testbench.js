@@ -59,6 +59,7 @@ function readJsonl(file) {
 function startRelay() {
   return new Promise((resolve, reject) => {
     const tokenFile = p("relay-token");
+    fs.mkdirSync(path.dirname(tokenFile), { recursive: true });
     fs.writeFileSync(tokenFile, NETWORK_TOKEN);
 
     // Use a random port for HTTP to avoid conflicts
