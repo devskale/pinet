@@ -17,6 +17,6 @@ export async function POST(req: Request) {
   if (!name || !name.trim()) return err("name required");
   const project = Q.createProject(name.trim());
   if (!project) return err("could not create project");
-  Q.addMember(project.id, user.id, "owner"); // creator is owner
+  Q.fillRole(project.id, "owner", user.id); // creator = owner role
   return Response.json({ project });
 }

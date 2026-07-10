@@ -29,13 +29,13 @@ export default function Page() {
 
   // accept an invite link (#invite=token) once logged in
   useEffect(() => {
-    const m = window.location.hash.match(/invite=([a-f0-9]+)/);
-    if (me && m) {
-      fetch(`/api/invites/${m[1]}/accept`, { method: "POST" }).then(() => {
-        history.replaceState(null, "", window.location.pathname);
-        setProject(null);
-      });
-    }
+    if (!me) return;
+    const h = window.location.hash;
+    const inv = h.match(/invite=([a-f0-9]+)/);
+    const rol = h.match(/role=([a-f0-9]+)/);
+    const done = () => { history.replaceState(null, "", window.location.pathname); setProject(null); };
+    if (inv) fetch(`/api/invites/${inv[1]}/accept`, { method: "POST" }).then(done);
+    else if (rol) fetch("/api/roles/claim", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: rol[1] }) }).then(done);
   }, [me]);
 
   const logout = async () => {
@@ -233,7 +233,9 @@ function Members({ project, me }: { project: string; me: Me }) {
   const [copied, setCopied] = useState("");
   const [menu, setMenu] = useState<string | null>(null);
   const [err, setErr] = useState("");
-  const load = async () => { const r = await fetch(`/api/projects/${P}/members`); if (r.ok) setMembers((await r.json()).members); };
+  const [roles, setRoles] = useState<{ name: string; holder: string | null; claim_token: string }[]>([]);
+  const [roleName, setRoleName] = useState("");
+  const load = async () => { const r = await fetch(`/api/projects/${P}/members`); if (r.ok) setMembers((await r.json()).members); const rr = await fetch(`/api/projects/${P}/roles`); if (rr.ok) setRoles((await rr.json()).roles); };
   useEffect(() => { load(); }, [project]);
   const meRole = members.find((m) => m.name === me.name)?.role;
   const manager = meRole === "owner" || meRole === "admin";
@@ -247,6 +249,9 @@ function Members({ project, me }: { project: string; me: Me }) {
   };
   const setRole = async (name: string, role: string) => { await fetch(`/api/projects/${P}/members/${encodeURIComponent(name)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role }) }); load(); };
   const remove = async (name: string) => { await fetch(`/api/projects/${P}/members/${encodeURIComponent(name)}`, { method: "DELETE" }); load(); };
+  const createRole = async () => { if (!roleName.trim()) return; await fetch(`/api/projects/${P}/roles`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: roleName.trim() }) }); setRoleName(""); load(); };
+  const deleteRole = async (name: string) => { await fetch(`/api/projects/${P}/roles/${encodeURIComponent(name)}`, { method: "DELETE" }); load(); };
+  const copyClaim = (token: string) => doCopy("role:" + token, `${location.origin}/#role=${token}`);
   const invite = async () => { const r = await fetch(`/api/projects/${P}/invites`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: "member" }) }); const j = await r.json(); const url = `${location.origin}/#invite=${j.token}`; setInviteTok(j.token); setInviteUrl(url); doCopy("invite", url); };
   const copyLink = async () => { doCopy("link", inviteUrl); };
   const copyInviteInst = async () => {
@@ -328,6 +333,27 @@ PP(){ curl -s -X \${2:-POST} -H "Authorization: Bearer \$TOK" -H 'Content-Type: 
           );
         })}
       </div>
+
+      <div className="mp-subhead">Roles</div>
+      <div className="mp-roles">
+        {roles.map((r) => (
+          <div className="mp-slot" key={r.name}>
+            <span className="mp-slot-name">{r.name}</span>
+            <span className={r.holder ? "muted" : "mp-open"}>{r.holder ?? "open"}</span>
+            <span className="mp-slot-actions">
+              {!r.holder && <button className="link" onClick={() => copyClaim(r.claim_token)}>{copied === "role:" + r.claim_token ? "copied!" : "copy link"}</button>}
+              {manager && <button className="link" onClick={() => deleteRole(r.name)}>×</button>}
+            </span>
+          </div>
+        ))}
+        {roles.length === 0 && <div className="muted mp-empty">no roles — create one for people to claim</div>}
+      </div>
+      {manager && (
+        <div className="mp-add" style={{ marginTop: 8 }}>
+          <input placeholder="role name (e.g. frontend)" value={roleName} onChange={(e) => setRoleName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && createRole()} />
+          <button className="ghost icon" onClick={createRole} aria-label="Create role">+</button>
+        </div>
+      )}
 
       {!manager && <div className="muted mp-note">Ask an owner/admin to add members.</div>}
       {err && <div className="error" style={{ marginTop: 8 }}>{err}</div>}

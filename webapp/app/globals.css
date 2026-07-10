@@ -97,6 +97,14 @@ button.link:hover { color: var(--text); }
 .mp-menu button:hover { background: var(--bg); }
 .mp-menu button.danger { color: var(--danger); }
 .mp-note { margin-top: 10px; font-size: 12px; }
+.mp-subhead { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 14px 0 4px; }
+.mp-roles { display: flex; flex-direction: column; }
+.mp-slot { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); }
+.mp-slot:first-child { border-top: 0; }
+.mp-slot-name { font-weight: 600; font-size: 13px; flex: 1; }
+.mp-open { color: #7ee2a8; font-size: 12px; }
+.mp-slot-actions { display: flex; gap: 6px; }
+.mp-empty { font-size: 12px; padding: 4px 0; }
 /* popovers (members / account) */
 .backdrop { position: fixed; inset: 0; z-index: 20; }
 .popover { position: absolute; right: 16px; top: 56px; z-index: 21; width: 340px; max-height: 72vh; overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 14px 44px #000c; }

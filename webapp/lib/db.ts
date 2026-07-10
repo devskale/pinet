@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { hash as argonHash, verify as argonVerify } from "@node-rs/argon2";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import fs from "node:fs";
 
@@ -63,6 +64,15 @@ CREATE TABLE IF NOT EXISTS invites (
   role TEXT NOT NULL,
   expires_at TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS project_roles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  name TEXT NOT NULL,
+  holder_user_id INTEGER REFERENCES users(id),
+  claim_token TEXT UNIQUE NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(project_id, name)
 );
 `);
 
@@ -133,27 +143,27 @@ export const Q = {
   projectById: (id: number) =>
     asT<Project | undefined>(db.prepare("SELECT id, name, created_at FROM projects WHERE id=?").get(id)),
 
-  // --- membership ---
-  addMember: (projectId: number, userId: number, role: string = "member") =>
-    db.prepare("INSERT OR IGNORE INTO project_members(project_id, user_id, role) VALUES(?,?,?)").run(projectId, userId, role),
+  // --- membership is derived from role holdings (a user is a member iff they hold a role slot) ---
   memberRole: (projectId: number, userId: number) =>
-    asT<{ role: string } | undefined>(db.prepare("SELECT role FROM project_members WHERE project_id=? AND user_id=?").get(projectId, userId)),
+    asT<{ role: string } | undefined>(
+      db.prepare("SELECT name AS role FROM project_roles WHERE project_id=? AND holder_user_id=? LIMIT 1").get(projectId, userId),
+    ),
   membersOf: (projectId: number) =>
     asT<{ name: string; kind: Kind; role: string }[]>(
-      db
-        .prepare("SELECT u.name, u.kind, m.role FROM project_members m JOIN users u ON u.id=m.user_id WHERE m.project_id=? ORDER BY m.role DESC, u.name")
-        .all(projectId),
+      db.prepare("SELECT u.name, u.kind, r.name AS role FROM project_roles r JOIN users u ON u.id=r.holder_user_id WHERE r.project_id=? AND r.holder_user_id IS NOT NULL ORDER BY r.id").all(projectId),
     ),
   projectsForUser: (userId: number) =>
     asT<Project[]>(
-      db
-        .prepare("SELECT p.id, p.name, p.created_at FROM project_members m JOIN projects p ON p.id=m.project_id WHERE m.user_id=? ORDER BY p.name")
-        .all(userId),
+      db.prepare("SELECT DISTINCT p.id, p.name, p.created_at FROM project_roles r JOIN projects p ON p.id=r.project_id WHERE r.holder_user_id=? ORDER BY p.name").all(userId),
     ),
-  removeMember: (projectId: number, userId: number) =>
-    db.prepare("DELETE FROM project_members WHERE project_id=? AND user_id=?").run(projectId, userId),
-  setMemberRole: (projectId: number, userId: number, role: string) =>
-    db.prepare("UPDATE project_members SET role=? WHERE project_id=? AND user_id=?").run(role, projectId, userId),
+  fillRole: (projectId: number, slotName: string, userId: number) => {
+    db.prepare("INSERT OR IGNORE INTO project_roles(project_id, name, claim_token) VALUES(?,?,?)").run(projectId, slotName, randomBytes(24).toString("hex"));
+    const slot = asT<{ id: number } | undefined>(db.prepare("SELECT id FROM project_roles WHERE project_id=? AND name=?").get(projectId, slotName));
+    if (slot) db.prepare("UPDATE project_roles SET holder_user_id=? WHERE id=?").run(userId, slot.id);
+    return slot;
+  },
+  addMember: (projectId: number, userId: number, role: string = "member") =>
+    db.prepare("INSERT OR IGNORE INTO project_members(project_id, user_id, role) VALUES(?,?,?)").run(projectId, userId, role),
   createInvite: (projectId: number, role: string, tokenHash: string, expiresAt: string) =>
     db.prepare("INSERT INTO invites(token_hash, project_id, role, expires_at) VALUES(?,?,?,?)").run(tokenHash, projectId, role, expiresAt),
   consumeInvite: (tokenHash: string) => {
@@ -165,4 +175,26 @@ export const Q = {
     if (new Date(row.expires_at).getTime() < Date.now()) return undefined; // expired
     return { project_id: row.project_id, role: row.role };
   },
+
+  // --- role slots: named, claimable via a stable link ---
+  rolesOf: (projectId: number) =>
+    asT<{ id: number; name: string; holder_user_id: number | null; claim_token: string }[]>(
+      db.prepare("SELECT id, name, holder_user_id, claim_token FROM project_roles WHERE project_id=? ORDER BY id").all(projectId),
+    ),
+  createRole: (projectId: number, name: string, claimToken: string) => {
+    db.prepare("INSERT OR IGNORE INTO project_roles(project_id, name, claim_token) VALUES(?,?,?)").run(projectId, name, claimToken);
+    return asT<{ id: number; name: string; holder_user_id: number | null; claim_token: string } | undefined>(
+      db.prepare("SELECT id, name, holder_user_id, claim_token FROM project_roles WHERE project_id=? AND name=?").get(projectId, name),
+    );
+  },
+  roleByClaim: (token: string) =>
+    asT<{ id: number; project_id: number; name: string; holder_user_id: number | null } | undefined>(
+      db.prepare("SELECT id, project_id, name, holder_user_id FROM project_roles WHERE claim_token=?").get(token),
+    ),
+  takeRole: (roleId: number, userId: number) =>
+    db.prepare("UPDATE project_roles SET holder_user_id=? WHERE id=? AND holder_user_id IS NULL").run(userId, roleId).changes > 0,
+  clearRoleHolder: (projectId: number, name: string) =>
+    db.prepare("UPDATE project_roles SET holder_user_id=NULL WHERE project_id=? AND name=?").run(projectId, name),
+  deleteRole: (projectId: number, name: string) =>
+    db.prepare("DELETE FROM project_roles WHERE project_id=? AND name=?").run(projectId, name),
 };
