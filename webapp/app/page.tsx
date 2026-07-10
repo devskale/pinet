@@ -287,8 +287,7 @@ PP(){ curl -s -X \${2:-POST} -H "Authorization: Bearer \$TOK" -H 'Content-Type: 
 
       {manager && (
         <div className="mp-add">
-          <input placeholder="Add by name…" value={addName} onChange={(e) => setAddName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
-          <select value={addRole} onChange={(e) => setAddRole(e.target.value)}>{ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select>
+          <input placeholder="Add a member by name…" value={addName} onChange={(e) => setAddName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
           <button className="ghost icon" onClick={add} aria-label="Add member">+</button>
           <button className="ghost icon" onClick={invite} aria-label="Invite link">{copied === "invite" ? "✓" : "🔗"}</button>
         </div>
