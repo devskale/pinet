@@ -33,7 +33,7 @@ export function resolveAgentIdentity(machine: string, inputPath: string): Resolv
   if (sub) {
     const project = Q.projectById(sub.project_id);
     if (!project) throw new Error(`orphan subproject ${sub.name}`);
-    return { project, subproject: sub, handle: `${machine}@${sub.name}`, assignment: `${project.name}/${sub.name}` };
+    return { project, subproject: sub, handle: `${machine}@${project.name}/${sub.name}`, assignment: `${project.name}/${sub.name}` };
   }
 
   throw new Error(`Unknown repo path: ${abs}. Register it as a project/subproject first.`);
