@@ -1,237 +1,214 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Board from "./board";
+import { useCallback, useEffect, useState } from "react";
 
-type User = {
-  id: number;
-  kind: "human" | "agent";
-  handle: string;
-  machine: string | null;
-  role: "admin" | "orchestrator" | "worker";
-  display_name: string | null;
-};
+type Me = { name: string; kind: "user" | "agent" };
+type Issue = { slug: string; state: string; from: string; date: string; text: string; column: string };
 
-const PERSONAS: { label: string; tag: string; machine: string; path: string }[] = [
-  { label: "orchestrator · kontext.one", tag: "orchestrator", machine: "mac", path: "~/code/kontext.one" },
-  { label: "frontend · kontext.one/klark0", tag: "worker", machine: "mac", path: "~/code/kontext.one/klark0" },
-  { label: "backend · kontext.one/python-utils", tag: "worker", machine: "pi5", path: "~/code/kontext.one/python-utils" },
+const COLS = [
+  { col: "backlog", label: "Backlog", state: "OPEN" },
+  { col: "active", label: "In Progress", state: "WIP" },
+  { col: "review", label: "Review", state: "FOR_REVIEW" },
+  { col: "archive", label: "Done", state: "DONE" },
 ];
+const ORDER = COLS.map((c) => c.col);
 
 export default function Page() {
-  const [me, setMe] = useState<User | null>(null);
-  const [adminPw, setAdminPw] = useState("admin");
-  const [machine, setMachine] = useState("mac");
-  const [repoPath, setRepoPath] = useState("~/code/kontext.one/klark0");
-  const [last, setLast] = useState<unknown>(null);
-  const [state, setState] = useState<{ projects: any[]; users: any[] } | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [me, setMe] = useState<Me | null>(null);
+  const [ready, setReady] = useState(false);
+  const [project, setProject] = useState<string | null>(null);
 
-  async function refreshMe() {
-    const r = await fetch("/api/me");
+  const refreshMe = useCallback(async () => {
+    const r = await fetch("/api/auth/me");
     setMe(r.ok ? (await r.json()).user : null);
-  }
-  useEffect(() => {
-    refreshMe();
+    setReady(true);
   }, []);
 
-  async function call(url: string, init?: RequestInit) {
-    setBusy(true);
-    try {
-      const r = await fetch(url, init);
-      const j = await r.json().catch(() => ({ error: "no json" }));
-      setLast({ status: r.status, body: j });
-      await refreshMe();
-      if (me?.role === "admin" || j?.user?.role === "admin") {
-        const s = await fetch("/api/admin/state");
-        if (s.ok) setState(await s.json());
-      }
-      return j;
-    } finally {
-      setBusy(false);
+  useEffect(() => {
+    refreshMe();
+  }, [refreshMe]);
+
+  useEffect(() => {
+    if (me) {
+      const p = localStorage.getItem("pinet.project");
+      if (p) setProject(p);
     }
-  }
+  }, [me]);
 
-  const loginHuman = () =>
-    call("/api/login/human", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: adminPw }),
-    });
-
-  const loginAgent = () =>
-    call("/api/login/agent", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ machine, path: repoPath }),
-    });
-
-  const logout = () => call("/api/logout", { method: "POST" });
-
-  const devLogin = (persona: string) =>
-    call("/api/login/dev", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ persona }),
-    });
-
-  const loadState = async () => {
-    const s = await fetch("/api/admin/state");
-    setState(s.ok ? await s.json() : null);
+  const logout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    localStorage.removeItem("pinet.project");
+    setProject(null);
+    setMe(null);
   };
-  const assignRole = async (handle: string, role: string) => {
-    await fetch("/api/admin/assign", {
+
+  if (!ready) return null;
+  if (!me) return <Auth onDone={refreshMe} />;
+  if (!project) return <Projects me={me} onPick={setProject} onLogout={logout} />;
+  return <Board me={me} project={project} onLeave={() => { localStorage.removeItem("pinet.project"); setProject(null); }} onLogout={logout} />;
+}
+
+/* ---------- Auth ---------- */
+function Auth({ onDone }: { onDone: () => void }) {
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [kind, setKind] = useState<"user" | "agent">("user");
+  const [error, setError] = useState("");
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    const r = await fetch(`/api/auth/${mode}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ handle, role }),
+      body: JSON.stringify(mode === "register" ? { name, password, kind } : { name, password }),
     });
-    loadState();
+    if (!r.ok) {
+      setError(((await r.json().catch(() => ({}))) as { error?: string }).error || "failed");
+      return;
+    }
+    onDone();
   };
 
   return (
-    <div className="wrap">
-      <h1>
-        PiNet <span className="sub">— agent team login</span>
-      </h1>
-      <p className="muted">
-        Humans log in with the admin password. Pi agents log in with <code>machine</code> + a repo{" "}
-        <code>path</code> — role is implicit from the path depth.
-      </p>
-
-      <div className="me">
-        {me ? (
-          <>
-            <span>
-              <span className={`tag ${me.role}`}>{me.role}</span>{" "}
-              <strong>{me.handle}</strong>{" "}
-              <span className="muted">({me.kind})</span>
-            </span>
-            <button className="ghost" onClick={logout} disabled={busy}>
-              log out
-            </button>
-          </>
-        ) : (
-          <span className="muted">not logged in</span>
+    <div className="screen">
+      <form className="auth card" onSubmit={submit}>
+        <h1>pinet</h1>
+        <div className="seg">
+          <button type="button" className={mode === "login" ? "on" : ""} onClick={() => setMode("login")}>log in</button>
+          <button type="button" className={mode === "register" ? "on" : ""} onClick={() => setMode("register")}>register</button>
+        </div>
+        <input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        <input type="password" placeholder="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        {mode === "register" && (
+          <div className="seg">
+            <button type="button" className={kind === "user" ? "on" : ""} onClick={() => setKind("user")}>human</button>
+            <button type="button" className={kind === "agent" ? "on" : ""} onClick={() => setKind("agent")}>agent</button>
+          </div>
         )}
-      </div>
+        {error && <div className="error">{error}</div>}
+        <button type="submit" className="primary">{mode === "login" ? "log in" : "register"}</button>
+      </form>
+    </div>
+  );
+}
 
-      {process.env.NODE_ENV === "development" && (
-        <div className="card">
-          <h2 style={{ marginBottom: 8 }}>Dev · one-click login</h2>
-          <div className="pills">
-            {["admin", "orchestrator", "frontend", "backend"].map((p) => (
-              <button key={p} className="pill" onClick={() => devLogin(p)} disabled={busy}>
-                {p}
-              </button>
-            ))}
-          </div>
+/* ---------- Projects ---------- */
+function Projects({ me, onPick, onLogout }: { me: Me; onPick: (p: string) => void; onLogout: () => void }) {
+  const [names, setNames] = useState<string[]>([]);
+  const [nu, setNu] = useState("");
+  const load = async () => {
+    const r = await fetch("/api/projects");
+    if (r.ok) setNames((await r.json()).projects.map((p: { name: string }) => p.name));
+  };
+  useEffect(() => { load(); }, []);
+  const create = async () => {
+    if (!nu.trim()) return;
+    await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: nu.trim() }) });
+    setNu("");
+    load();
+  };
+  const enter = (n: string) => { localStorage.setItem("pinet.project", n); onPick(n); };
+
+  return (
+    <div className="screen">
+      <div className="card wide">
+        <div className="topbar">
+          <h1>projects</h1>
+          <div className="who">{me.name} · {me.kind} <button className="link" onClick={onLogout}>log out</button></div>
         </div>
-      )}
-
-      <div className="grid">
-        <div className="card">
-          <h2>Human · admin</h2>
-          <div className="row">
-            <input
-              type="password"
-              placeholder="admin password"
-              value={adminPw}
-              onChange={(e) => setAdminPw(e.target.value)}
-            />
-            <button onClick={loginHuman} disabled={busy}>
-              log in
-            </button>
-          </div>
-          <p className="muted" style={{ margin: 0 }}>
-            Default password <code>admin</code> (env <code>ADMIN_PASSWORD</code>).
-          </p>
+        <div className="proj-grid">
+          {names.map((n) => (
+            <button key={n} className="proj-card" onClick={() => enter(n)}>{n}</button>
+          ))}
+          {names.length === 0 && <div className="muted">no projects yet — create one</div>}
         </div>
-
-        <div className="card">
-          <h2>Pi agent</h2>
-          <div className="row">
-            <input
-              placeholder="machine"
-              value={machine}
-              onChange={(e) => setMachine(e.target.value)}
-              style={{ flex: "0 0 90px", width: "auto" }}
-            />
-            <input
-              placeholder="repo path (e.g. ~/code/kontext.one/klark0)"
-              value={repoPath}
-              onChange={(e) => setRepoPath(e.target.value)}
-            />
-            <button onClick={loginAgent} disabled={busy}>
-              log in
-            </button>
-          </div>
-          <div className="pills">
-            {PERSONAS.map((p) => (
-              <button
-                key={p.label}
-                className="pill"
-                onClick={() => {
-                  setMachine(p.machine);
-                  setRepoPath(p.path);
-                }}
-              >
-                <span className={`tag ${p.tag}`}>{p.tag}</span> {p.label}
-              </button>
-            ))}
-          </div>
+        <div className="row">
+          <input placeholder="new project name" value={nu} onChange={(e) => setNu(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
+          <button className="primary" onClick={create}>create</button>
         </div>
       </div>
+    </div>
+  );
+}
 
-      {me && <Board me={me} />}
+/* ---------- Board ---------- */
+function Board({ me, project, onLeave, onLogout }: { me: Me; project: string; onLeave: () => void; onLogout: () => void }) {
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const [draft, setDraft] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
 
-      {me?.role === "admin" && state && (
-        <>
-          <h2>
-            Admin · roster{" "}
-            <button className="ghost" style={{ marginLeft: 8 }} onClick={loadState} disabled={busy}>
-              refresh
-            </button>
-          </h2>
-          <div className="card">
-            <div className="row">
-              <span className="muted" style={{ flex: "0 0 170px", fontSize: 12 }}>handle</span>
-              <span className="muted" style={{ flex: "0 0 70px", fontSize: 12 }}>kind</span>
-              <span className="muted" style={{ flex: "0 0 150px", fontSize: 12 }}>role</span>
-              <span className="muted" style={{ fontSize: 12 }}>project / subproject</span>
-            </div>
-            {state.users.map((u) => {
-              const proj = state.projects.find((p) => p.id === u.project_id);
-              const sub = proj?.subprojects?.find((s: any) => s.id === u.subproject_id);
-              return (
-                <div className="row" key={u.handle}>
-                  <span style={{ flex: "0 0 170px" }}>{u.handle}</span>
-                  <span className="muted" style={{ flex: "0 0 70px" }}>{u.kind}</span>
-                  <select
-                    style={{ flex: "0 0 150px" }}
-                    value={u.role}
-                    disabled={u.role === "admin"}
-                    onChange={(e) => assignRole(u.handle, e.target.value)}
-                  >
-                    {u.role === "admin" && <option value="admin">admin</option>}
-                    {["worker", "orchestrator", "frontend", "backend", "researcher"].map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="muted">
-                    {proj?.name ?? "–"}
-                    {sub ? ` / ${sub.name}` : ""}
-                  </span>
+  const load = async () => {
+    const r = await fetch(`/api/projects/${encodeURIComponent(project)}/issues`);
+    if (r.ok) setIssues((await r.json()).issues);
+  };
+  useEffect(() => { load(); }, [project]);
+
+  const add = async () => {
+    if (!draft.trim()) return;
+    await fetch(`/api/projects/${encodeURIComponent(project)}/issues`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: draft }),
+    });
+    setDraft("");
+    load();
+  };
+  const move = async (it: Issue, to: string) => {
+    await fetch(`/api/projects/${encodeURIComponent(project)}/issues/${it.slug}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: to }),
+    });
+    load();
+  };
+  const saveEdit = async () => {
+    if (editing) {
+      await fetch(`/api/projects/${encodeURIComponent(project)}/issues/${editing}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: editText }),
+      });
+      setEditing(null);
+      load();
+    }
+  };
+  const del = async (slug: string) => {
+    await fetch(`/api/projects/${encodeURIComponent(project)}/issues/${slug}`, { method: "DELETE" });
+    load();
+  };
+
+  const idx = (col: string) => ORDER.indexOf(col);
+
+  return (
+    <div className="board-screen">
+      <div className="topbar">
+        <button className="link" onClick={onLeave}>← projects</button>
+        <h1>{project}</h1>
+        <div className="who">{me.name} · {me.kind} <button className="link" onClick={onLogout}>log out</button></div>
+      </div>
+      <div className="newcard row">
+        <input placeholder="add a card…" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+        <button className="primary" onClick={add}>add</button>
+      </div>
+      <div className="board">
+        {COLS.map((c) => (
+          <div className="col" key={c.col}>
+            <div className="col-h"><span>{c.label}</span><span className="muted">{issues.filter((i) => i.column === c.col).length}</span></div>
+            {issues.filter((i) => i.column === c.col).map((it) => (
+              <div className="card2" key={it.slug}>
+                {editing === it.slug ? (
+                  <textarea autoFocus value={editText} onChange={(e) => setEditText(e.target.value)} onBlur={saveEdit} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveEdit(); } }} />
+                ) : (
+                  <div className="card2-text" onClick={() => { setEditing(it.slug); setEditText(it.text); }}>{it.text}</div>
+                )}
+                <div className="card2-meta muted">{it.from} · {it.date}</div>
+                <div className="card2-actions">
+                  <button disabled={idx(it.column) === 0} onClick={() => move(it, COLS[idx(it.column) - 1].state)}>←</button>
+                  <button disabled={idx(it.column) === ORDER.length - 1} onClick={() => move(it, COLS[idx(it.column) + 1].state)}>→</button>
+                  <button className="del" onClick={() => del(it.slug)}>×</button>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
-        </>
-      )}
-
-      <h2>Last response</h2>
-      <pre>{JSON.stringify(last, null, 2)}</pre>
+        ))}
+      </div>
     </div>
   );
 }
