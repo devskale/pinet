@@ -225,6 +225,7 @@ function Members({ project, me }: { project: string; me: Me }) {
   const [inviteUrl, setInviteUrl] = useState("");
   const [inviteTok, setInviteTok] = useState("");
   const [copied, setCopied] = useState("");
+  const [menu, setMenu] = useState<string | null>(null);
   const [err, setErr] = useState("");
   const load = async () => { const r = await fetch(`/api/projects/${P}/members`); if (r.ok) setMembers((await r.json()).members); };
   useEffect(() => { load(); }, [project]);
@@ -240,7 +241,7 @@ function Members({ project, me }: { project: string; me: Me }) {
   };
   const setRole = async (name: string, role: string) => { await fetch(`/api/projects/${P}/members/${encodeURIComponent(name)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role }) }); load(); };
   const remove = async (name: string) => { await fetch(`/api/projects/${P}/members/${encodeURIComponent(name)}`, { method: "DELETE" }); load(); };
-  const invite = async () => { const r = await fetch(`/api/projects/${P}/invites`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: "member" }) }); const j = await r.json(); setInviteTok(j.token); setInviteUrl(`${location.origin}/#invite=${j.token}`); };
+  const invite = async () => { const r = await fetch(`/api/projects/${P}/invites`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: "member" }) }); const j = await r.json(); const url = `${location.origin}/#invite=${j.token}`; setInviteTok(j.token); setInviteUrl(url); doCopy("invite", url); };
   const copyLink = async () => { doCopy("link", inviteUrl); };
   const copyInviteInst = async () => {
     const snippet = `# pinet invite — join project "${project}" @ ${location.origin}
@@ -275,48 +276,59 @@ PP(){ curl -s -X \${2:-POST} -H "Authorization: Bearer \$TOK" -H 'Content-Type: 
   };
 
   return (
-    <div className="card panel">
-      <div className="members">
-        {members.map((m) => (
-          <div className="member-wrap" key={m.name}>
-            <div className="member-row">
-              <span className="m-name">{m.name}</span>
-              {!(manager && m.role !== "owner") && <span className={"role " + m.role}>{m.role}</span>}
-              <span className="muted kind">{m.kind}</span>
-              {m.kind === "agent" && <button className="link" onClick={() => copyInst(m)}>{copied === "agent:" + m.name ? "copied!" : "copy"}</button>}
-              {manager && m.role !== "owner" && (
+    <div className="card panel mp">
+      <div className="mp-head"><span>Members</span><span className="muted">{members.length}</span></div>
+
+      {manager && (
+        <div className="mp-add">
+          <input placeholder="Add a user or agent by name…" value={addName} onChange={(e) => setAddName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+          <select value={addRole} onChange={(e) => setAddRole(e.target.value)}>{ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select>
+          <button className="primary" onClick={add}>Add</button>
+          <button onClick={invite}>{copied === "invite" ? "copied!" : "Invite link"}</button>
+        </div>
+      )}
+
+      {inviteTok && (
+        <div className="mp-invite">
+          <input readOnly value={inviteUrl} onFocus={(e) => e.target.select()} />
+          <span className="muted">link copied — share to invite</span>
+        </div>
+      )}
+
+      <div className="mp-list">
+        {members.map((m) => {
+          const canManage = manager && m.role !== "owner";
+          return (
+            <div className="mp-row" key={m.name}>
+              <div className="mp-id">
+                <div className="mp-name">{m.name}</div>
+                <div className="muted mp-sub">{m.kind}</div>
+              </div>
+              <div className="mp-right">
+                {canManage ? (
+                  <select className="mp-role" value={m.role} onChange={(e) => setRole(m.name, e.target.value)}>{["member", "admin"].map((r) => <option key={r} value={r}>{r}</option>)}</select>
+                ) : (
+                  <span className={"role " + m.role}>{m.role}</span>
+                )}
+                {(canManage || m.kind === "agent") && (
+                  <button className="mp-more" onClick={() => setMenu(menu === m.name ? null : m.name)}>⋯</button>
+                )}
+              </div>
+              {menu === m.name && (
                 <>
-                  <select value={m.role} onChange={(e) => setRole(m.name, e.target.value)}>{["member", "admin"].map((r) => <option key={r} value={r}>{r}</option>)}</select>
-                  <button className="link" onClick={() => remove(m.name)}>remove</button>
+                  <div className="mp-backdrop" onClick={() => setMenu(null)} />
+                  <div className="mp-menu">
+                    {m.kind === "agent" && <button onClick={() => { copyInst(m); setMenu(null); }}>{copied === "agent:" + m.name ? "Copied ✓" : "Copy agent instructions"}</button>}
+                    {canManage && <button className="danger" onClick={() => { remove(m.name); setMenu(null); }}>Remove</button>}
+                  </div>
                 </>
               )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
-      {manager ? (
-        <>
-          <div className="row" style={{ marginTop: 10 }}>
-            <input placeholder="add existing user/agent by name" value={addName} onChange={(e) => setAddName(e.target.value)} />
-            <select value={addRole} onChange={(e) => setAddRole(e.target.value)}>{ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select>
-            <button className="primary" onClick={add}>add</button>
-          </div>
-          <div className="row" style={{ marginTop: 8 }}>
-            <button onClick={invite}>create invite link</button>
-          </div>
-          {inviteTok && (
-            <>
-              <div className="row" style={{ marginTop: 6 }}>
-                <input readOnly value={inviteUrl} onFocus={(e) => e.target.select()} />
-                <button onClick={copyLink}>{copied === "link" ? "copied!" : "copy link"}</button>
-                <button onClick={copyInviteInst}>{copied === "invite" ? "copied!" : "copy agent instructions"}</button>
-              </div>
-            </>
-          )}
-        </>
-      ) : (
-        <div className="muted" style={{ marginTop: 8 }}>ask an owner/admin to add members</div>
-      )}
+
+      {!manager && <div className="muted mp-note">Ask an owner/admin to add members.</div>}
       {err && <div className="error" style={{ marginTop: 8 }}>{err}</div>}
     </div>
   );

@@ -71,12 +71,27 @@ button.link:hover { color: var(--text); }
 .card2-actions .del { margin-left: auto; color: var(--danger); }
 
 .panel { margin-bottom: 16px; }
-.members { display: flex; flex-direction: column; gap: 6px; }
-.member-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
-.member-row .m-name { font-weight: 600; min-width: 130px; }
-.member-row .kind { font-size: 11px; }
-.member-row select { width: auto; padding: 3px 6px; font-size: 12px; }
-.role { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+/* members panel — SOTA: avatar + name + role + ⋯ menu */
+.mp { padding: 16px; }
+.mp-head { display: flex; justify-content: space-between; align-items: baseline; font-weight: 600; font-size: 13px; margin-bottom: 10px; }
+.mp-add, .mp-invite { display: flex; gap: 6px; margin-bottom: 10px; align-items: center; }
+.mp-add input, .mp-invite input { flex: 1; }
+.mp-list { display: flex; flex-direction: column; }
+.mp-row { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-top: 1px solid var(--border); position: relative; }
+.mp-row:first-child { border-top: 0; }
+.mp-id { flex: 1; min-width: 0; }
+.mp-name { font-weight: 600; font-size: 13px; }
+.mp-sub { font-size: 11px; }
+.mp-right { display: flex; align-items: center; gap: 8px; }
+.mp-role { width: auto; padding: 4px 8px; font-size: 12px; }
+.role { font-size: 11px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
 .role.owner { color: #e2c37e; border-color: #e2c37e; }
 .role.admin { color: var(--accent); border-color: var(--accent); }
-.inst { margin-top: 6px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; min-height: 150px; }
+.mp-more { background: none; border: 0; color: var(--muted); padding: 2px 6px; font-size: 18px; line-height: 1; cursor: pointer; }
+.mp-more:hover { color: var(--text); }
+.mp-backdrop { position: fixed; inset: 0; z-index: 5; }
+.mp-menu { position: absolute; right: 4px; top: 34px; z-index: 6; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 4px; min-width: 180px; box-shadow: 0 8px 24px #000a; }
+.mp-menu button { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 7px 10px; border-radius: 6px; font-size: 13px; color: var(--text); cursor: pointer; }
+.mp-menu button:hover { background: var(--bg); }
+.mp-menu button.danger { color: var(--danger); }
+.mp-note { margin-top: 10px; font-size: 12px; }
