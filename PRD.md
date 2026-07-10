@@ -59,13 +59,14 @@ Render the login form against the agreed contract.
 - **Moving a card** = `mv` the file between column dirs + flip `state`.
 - **`state` ↔ column** is 1:1: `OPEN=backlog`, `WIP=active`, `FOR_REVIEW=review`, `DONE=archive`, `CANCELLED=cancelled`.
 
-### Identity = `machine@scope`
+### Login → assigned a `project/subproject`
 
-`machine` from `~/.handoff-me` (fallback `hostname -s`; already resolved by your `statusline` extension). **`scope`** is the `@`-part:
-- **default** = project name (the default agent for that project)
-- **override** = a role (`backend` / `frontend` / `orchestrator`) when several agents share a project
+When a pi agent logs in, it is **assigned a project/subproject** — e.g. `kontext.one/frontend`. That assignment *is* its scope and its permission grant:
 
-Agents and users register this handle in `users.json` and **log in** to get a session/token. The `module:` field still records the target repo/package (as text).
+- **Project** (`kontext.one`) = the board (one per git project/metarepo).
+- **Subproject** (`frontend`) = the module/repo within it — the agent's area. This is kontext.one's `module:` field. Optional for single-repo projects (just `project`).
+
+Identity handle within the project is `machine@<subproject>` (e.g. `mac@frontend`); `machine` from `~/.handoff-me` (fallback `hostname -s`, already resolved by your `statusline` extension). Agents and users log in to get a session/token; the assignment decides which board they see and which subproject they work — they default to their own subproject's issues, but the board is project-wide.
 
 ### Assignment = the `to:` field; pull = `todo`
 
@@ -94,7 +95,7 @@ Shipped as `@devskale/<name>` with a short CLI binary (toj convention).
 
 **The complementary pi extension** layers on for agents, composing patterns you already ship in `skale-skills/extensions` (`heartbeat.ts`, `statusline.ts`). Four jobs:
 
-1. **`login [scope]`** — resolve + bind identity (`machine@scope`), authenticate to the webapp, store the token, start the heartbeat.
+1. **`login [project/subproject]`** — resolve + bind identity (`machine@<subproject>`) and your assignment, authenticate to the webapp, store the token, start the heartbeat.
 2. **get scope** — determine the `@scope` part and which project/board.
 3. **get access to issues** — register the workhorse verbs as pi tools (`issue_todo/list/show`, `issue_new/start/review`, `issue_set/triage`, `issue_overview`) so the LLM calls them directly; each hits the API.
 4. **get heartbeat** — the self-tick (see Timing model).
@@ -164,7 +165,7 @@ Pull and orchestrate coexist: workers pull via `todo`; the orchestrator hard-ass
 2. **The webapp is the hub.** It holds **issue files** (content) + an **embedded DB** (users, permissions, sessions, board index). It does **not** hold code/repos; it does **no git**.
 3. **Two equal client groups over one hub:** humans (UI) + agents (skill/CLI + extension → HTTP API). **No MCP.**
 4. **Login/logout + per-project permissions** for agents and users.
-5. **Identity = `machine@scope`.**
+5. **Login assigns a `project/subproject`** (scope + permission grant); handle `machine@<subproject>` within the project.
 6. **Cross-machine = HTTP to the webapp** (no relay, no file-sync — the pinet 1.0 trap, avoided).
 7. **Wake is agent-local self-tick only** — heartbeat → `pi.sendUserMessage({deliverAs:"followUp"})`; **no server-push**.
 8. **Self-hosted, `@devskale/` package, short CLI, credgoo for keys** (toj form factor).
