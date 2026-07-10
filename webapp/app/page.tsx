@@ -68,6 +68,13 @@ export default function Page() {
 
   const logout = () => call("/api/logout", { method: "POST" });
 
+  const devLogin = (persona: string) =>
+    call("/api/login/dev", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ persona }),
+    });
+
   const loadState = async () => {
     const s = await fetch("/api/admin/state");
     setState(s.ok ? await s.json() : { error: "admin only", status: s.status });
@@ -99,6 +106,19 @@ export default function Page() {
           <span className="muted">not logged in</span>
         )}
       </div>
+
+      {process.env.NODE_ENV === "development" && (
+        <div className="card">
+          <h2 style={{ marginBottom: 8 }}>Dev · one-click login</h2>
+          <div className="pills">
+            {["admin", "orchestrator", "frontend", "backend"].map((p) => (
+              <button key={p} className="pill" onClick={() => devLogin(p)} disabled={busy}>
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid">
         <div className="card">
