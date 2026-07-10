@@ -13,7 +13,7 @@ const COLS = [
   { col: "archive", label: "Done", state: "DONE" },
 ];
 const ORDER = COLS.map((c) => c.col);
-const ROLES = ["admin", "member"];
+const ROLES = ["admin", "member", "agent"];
 
 export default function Page() {
   const [me, setMe] = useState<Me | null>(null);
@@ -184,8 +184,14 @@ function Board({ me, project, onLeave, onLogout }: { me: Me; project: string; on
         <div className="who">{me.name}</div>
       </div>
 
-      {panel === "members" && <Members project={project} me={me} />}
-      {panel === "account" && <Account onLogout={onLogout} />}
+      {panel && (
+        <>
+          <div className="backdrop" onClick={() => setPanel(null)} />
+          <div className="popover">
+            {panel === "members" ? <Members project={project} me={me} /> : <Account onLogout={onLogout} />}
+          </div>
+        </>
+      )}
 
       <div className="newcard row">
         <input placeholder="add a card…" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
@@ -276,22 +282,21 @@ PP(){ curl -s -X \${2:-POST} -H "Authorization: Bearer \$TOK" -H 'Content-Type: 
   };
 
   return (
-    <div className="card panel mp">
+    <div className="mp">
       <div className="mp-head"><span>Members</span><span className="muted">{members.length}</span></div>
 
       {manager && (
         <div className="mp-add">
-          <input placeholder="Add a user or agent by name…" value={addName} onChange={(e) => setAddName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+          <input placeholder="Add by name…" value={addName} onChange={(e) => setAddName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
           <select value={addRole} onChange={(e) => setAddRole(e.target.value)}>{ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select>
-          <button className="primary" onClick={add}>Add</button>
-          <button onClick={invite}>{copied === "invite" ? "copied!" : "Invite link"}</button>
+          <button className="ghost icon" onClick={add} aria-label="Add member">+</button>
+          <button className="ghost icon" onClick={invite} aria-label="Invite link">{copied === "invite" ? "✓" : "🔗"}</button>
         </div>
       )}
 
       {inviteTok && (
         <div className="mp-invite">
           <input readOnly value={inviteUrl} onFocus={(e) => e.target.select()} />
-          <span className="muted">link copied — share to invite</span>
         </div>
       )}
 
@@ -300,13 +305,10 @@ PP(){ curl -s -X \${2:-POST} -H "Authorization: Bearer \$TOK" -H 'Content-Type: 
           const canManage = manager && m.role !== "owner";
           return (
             <div className="mp-row" key={m.name}>
-              <div className="mp-id">
-                <div className="mp-name">{m.name}</div>
-                <div className="muted mp-sub">{m.kind}</div>
-              </div>
+              <span className="mp-name">{m.name}</span>
               <div className="mp-right">
                 {canManage ? (
-                  <select className="mp-role" value={m.role} onChange={(e) => setRole(m.name, e.target.value)}>{["member", "admin"].map((r) => <option key={r} value={r}>{r}</option>)}</select>
+                  <select className="mp-role" value={m.role} onChange={(e) => setRole(m.name, e.target.value)}>{["admin", "member", "agent"].map((r) => <option key={r} value={r}>{r}</option>)}</select>
                 ) : (
                   <span className={"role " + m.role}>{m.role}</span>
                 )}
@@ -344,7 +346,7 @@ function Account({ onLogout }: { onLogout: () => void }) {
     if (r.ok) { setCur(""); setNext(""); }
   };
   return (
-    <div className="card panel">
+    <div className="ap">
       <div className="row"><input type="password" placeholder="current password" value={cur} onChange={(e) => setCur(e.target.value)} /></div>
       <div className="row" style={{ marginTop: 6 }}><input type="password" placeholder="new password (min 8)" value={next} onChange={(e) => setNext(e.target.value)} /></div>
       <div className="row" style={{ marginTop: 8 }}><button className="primary" onClick={change}>change password</button><div className={msg === "password changed" ? "muted" : "error"}>{msg}</div></div>

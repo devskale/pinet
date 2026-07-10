@@ -24,6 +24,9 @@ button { font: inherit; color: var(--text); background: var(--panel-2); border: 
   border-radius: 8px; padding: 9px 14px; cursor: pointer; }
 button:disabled { opacity: 0.35; cursor: default; }
 button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button.icon { min-width: 38px; width: 38px; padding: 9px 0; font-size: 18px; line-height: 1; }
+button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+button.block { width: 100%; }
 button.link { background: none; border: none; color: var(--muted); padding: 0 4px; }
 button.link:hover { color: var(--text); }
 .row { display: flex; gap: 8px; align-items: center; }
@@ -54,7 +57,7 @@ button.link:hover { color: var(--text); }
 .proj-card:hover { border-color: var(--accent); }
 
 /* board */
-.board-screen { max-width: 1200px; margin: 0 auto; padding: 20px; }
+.board-screen { max-width: 1200px; margin: 0 auto; padding: 20px; position: relative; }
 .newcard { margin-bottom: 16px; }
 .board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 @media (max-width: 900px) { .board { grid-template-columns: 1fr 1fr; } }
@@ -79,14 +82,13 @@ button.link:hover { color: var(--text); }
 .mp-list { display: flex; flex-direction: column; }
 .mp-row { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-top: 1px solid var(--border); position: relative; }
 .mp-row:first-child { border-top: 0; }
-.mp-id { flex: 1; min-width: 0; }
-.mp-name { font-weight: 600; font-size: 13px; }
-.mp-sub { font-size: 11px; }
+.mp-name { flex: 1; min-width: 0; font-weight: 600; font-size: 13px; }
 .mp-right { display: flex; align-items: center; gap: 8px; }
 .mp-role { width: auto; padding: 4px 8px; font-size: 12px; }
 .role { font-size: 11px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
 .role.owner { color: #e2c37e; border-color: #e2c37e; }
 .role.admin { color: var(--accent); border-color: var(--accent); }
+.role.agent { color: #7ee2a8; border-color: #7ee2a8; }
 .mp-more { background: none; border: 0; color: var(--muted); padding: 2px 6px; font-size: 18px; line-height: 1; cursor: pointer; }
 .mp-more:hover { color: var(--text); }
 .mp-backdrop { position: fixed; inset: 0; z-index: 5; }
@@ -95,3 +97,7 @@ button.link:hover { color: var(--text); }
 .mp-menu button:hover { background: var(--bg); }
 .mp-menu button.danger { color: var(--danger); }
 .mp-note { margin-top: 10px; font-size: 12px; }
+/* popovers (members / account) */
+.backdrop { position: fixed; inset: 0; z-index: 20; }
+.popover { position: absolute; right: 16px; top: 56px; z-index: 21; width: 340px; max-height: 72vh; overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 14px 44px #000c; }
+.ap { padding: 14px; }

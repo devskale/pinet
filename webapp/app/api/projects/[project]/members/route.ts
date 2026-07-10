@@ -3,7 +3,7 @@ import { Q } from "@/lib/db";
 import { err } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
-const ROLES = ["owner", "admin", "member"];
+const ROLES = ["owner", "admin", "member", "agent"];
 
 export async function GET(req: Request, { params }: { params: Promise<{ project: string }> }) {
   const { project } = await params;

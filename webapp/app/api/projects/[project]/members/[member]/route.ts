@@ -3,7 +3,7 @@ import { Q } from "@/lib/db";
 import { err } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
-const ROLES = ["owner", "admin", "member"];
+const ROLES = ["owner", "admin", "member", "agent"];
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ project: string; member: string }> }) {
   const { project, member } = await params;
