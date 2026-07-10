@@ -223,6 +223,7 @@ function Members({ project, me }: { project: string; me: Me }) {
   const [addName, setAddName] = useState("");
   const [addRole, setAddRole] = useState("member");
   const [inviteUrl, setInviteUrl] = useState("");
+  const [inst, setInst] = useState<{ name: string; text: string } | null>(null);
   const [err, setErr] = useState("");
   const load = async () => { const r = await fetch(`/api/projects/${P}/members`); if (r.ok) setMembers((await r.json()).members); };
   useEffect(() => { load(); }, [project]);
@@ -238,21 +239,40 @@ function Members({ project, me }: { project: string; me: Me }) {
   const setRole = async (name: string, role: string) => { await fetch(`/api/projects/${P}/members/${encodeURIComponent(name)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role }) }); load(); };
   const remove = async (name: string) => { await fetch(`/api/projects/${P}/members/${encodeURIComponent(name)}`, { method: "DELETE" }); load(); };
   const invite = async () => { const r = await fetch(`/api/projects/${P}/invites`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: "member" }) }); const j = await r.json(); setInviteUrl(`${location.origin}/#invite=${j.token}`); };
+  const copyInst = async (m: Member) => {
+    const snippet = `# pinet agent "${m.name}" — project "${project}" @ ${location.origin}
+# replace «password» with the agent's password, then paste into the agent
+export PINET_URL=${location.origin}
+PROJ=${project}
+TOK=\$(curl -s -X POST \$PINET_URL/api/auth/login -H 'Content-Type: application/json' -d '{"name":"${m.name}","password":"«password»"}' | sed -E 's/.*"token":"([^"]+)".*/\\1/')
+G(){ curl -s -H "Authorization: Bearer \$TOK" \$PINET_URL\$1; }
+PP(){ curl -s -X \${2:-POST} -H "Authorization: Bearer \$TOK" -H 'Content-Type: application/json' \$PINET_URL\$1 -d "\$3"; }
+# read board:   G /api/projects/\$PROJ/issues
+# add card:     PP /api/projects/\$PROJ/issues POST '{"text":"…"}'
+# move card:    PP /api/projects/\$PROJ/issues/SLUG PATCH '{"state":"WIP"}'   # OPEN WIP FOR_REVIEW DONE
+# delete card:  curl -s -X DELETE -H "Authorization: Bearer \$TOK" \$PINET_URL/api/projects/\$PROJ/issues/SLUG`;
+    setInst({ name: m.name, text: snippet });
+    try { await navigator.clipboard.writeText(snippet); } catch { /* clipboard blocked — textarea below for manual copy */ }
+  };
 
   return (
     <div className="card panel">
       <div className="members">
         {members.map((m) => (
-          <div className="member" key={m.name}>
-            <span className="m-name">{m.name}</span>
-            <span className={"role " + m.role}>{m.role}</span>
-            <span className="muted kind">{m.kind}</span>
-            {manager && m.role !== "owner" && (
-              <>
-                <select value={m.role} onChange={(e) => setRole(m.name, e.target.value)}>{["member", "admin"].map((r) => <option key={r} value={r}>{r}</option>)}</select>
-                <button className="link" onClick={() => remove(m.name)}>remove</button>
-              </>
-            )}
+          <div className="member-wrap" key={m.name}>
+            <div className="member">
+              <span className="m-name">{m.name}</span>
+              <span className={"role " + m.role}>{m.role}</span>
+              <span className="muted kind">{m.kind}</span>
+              {m.kind === "agent" && <button className="link" onClick={() => copyInst(m)}>copy</button>}
+              {manager && m.role !== "owner" && (
+                <>
+                  <select value={m.role} onChange={(e) => setRole(m.name, e.target.value)}>{["member", "admin"].map((r) => <option key={r} value={r}>{r}</option>)}</select>
+                  <button className="link" onClick={() => remove(m.name)}>remove</button>
+                </>
+              )}
+            </div>
+            {inst?.name === m.name && <textarea className="inst" readOnly value={inst.text} onFocus={(e) => e.target.select()} />}
           </div>
         ))}
       </div>

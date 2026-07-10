@@ -79,3 +79,4 @@ button.link:hover { color: var(--text); }
 .role { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
 .role.owner { color: #e2c37e; border-color: #e2c37e; }
 .role.admin { color: var(--accent); border-color: var(--accent); }
+.inst { margin-top: 6px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; min-height: 150px; }
