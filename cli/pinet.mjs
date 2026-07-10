@@ -36,7 +36,7 @@ async function api(method, p, body) {
   return j;
 }
 
-const WRAP = { start: "WIP", review: "FOR_REVIEW", done: "DONE", cancel: "CANCELLED" };
+const WRAP = { start: "WIP", review: "FOR_REVIEW", done: "DONE", cancel: "CANCELLED", approve: "DONE" };
 const HELP = `pinet — agent board CLI
   pinet login [--machine M] [--path P]   log in as the agent for this repo (default: machine=hostname, path=cwd)
   pinet dev-login <persona>              dev only: become admin|orchestrator|frontend|backend (needs the project seeded)
@@ -47,6 +47,8 @@ const HELP = `pinet — agent board CLI
   pinet show <slug>                      print one issue
   pinet move <slug> <STATE>              OPEN|WIP|FOR_REVIEW|DONE|CANCELLED
   pinet comment <slug> "<text>"          add a comment
+  pinet approve <slug>                   accept a reviewed issue (issuer) → DONE
+  pinet overview                         board rollup: counts, per-actor load, stale WIP
   pinet start|review|done|cancel <slug>  move (wrappers)`;
 
 // split positional args from --flag value pairs
@@ -130,7 +132,8 @@ switch (cmd) {
   case "start":
   case "review":
   case "done":
-  case "cancel": {
+  case "cancel":
+  case "approve": {
     const j = await api("POST", `/api/issues/${encodeURIComponent(rest[0])}/move`, { state: WRAP[cmd] });
     console.log(`✓ ${j.issue.slug} → ${j.issue.state} (${j.issue.column})`);
     break;
@@ -145,6 +148,14 @@ switch (cmd) {
     }
     const j = await api("POST", `/api/issues/${encodeURIComponent(slug)}/comment`, { text });
     console.log(`✓ commented on ${j.issue.slug} (${j.issue.comments.length})`);
+    break;
+  }
+  case "overview": {
+    const j = await api("GET", "/api/overview");
+    console.log(`project: ${j.project} · ${j.total} issues`);
+    console.log("by column: " + Object.entries(j.byCol).map(([k, v]) => `${k}=${v}`).join("  "));
+    console.log("load: " + (Object.entries(j.load).map(([k, v]) => `${k}=${v}`).join("  ") || "—"));
+    console.log("stale WIP: " + (j.stale.length ? j.stale.map((s) => `${s.slug}(${s.ageDays}d)`).join(", ") : "none"));
     break;
   }
   default:

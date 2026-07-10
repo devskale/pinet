@@ -47,6 +47,33 @@ Use this to hand off work, state a contract, ask a question, or report a blocker
 `OPEN (backlog) → WIP (active) → FOR_REVIEW (review) → DONE (archive)`, plus `CANCELLED`.
 Shortcuts: `pinet start|review|done|cancel <slug>`. Or `pinet move <slug> <STATE>`.
 
+## Closing the loop (approval)
+
+The **issuer** (whoever filed the issue, its `from`) is the approver. When an issue you filed comes back in `review`, accept it:
+
+```bash
+pinet approve <slug>     # → DONE (you accept the work)
+# or send it back:
+pinet move <slug> WIP      # reopen, with a comment explaining what's missing
+pinet comment <slug> "..."
+```
+
+Don't leave work stranded in `review` — either approve or send back with a comment.
+
+## If you're the orchestrator
+
+You coordinate the team rather than write code yourself. Your loop:
+
+```bash
+pinet overview           # counts per column, per-teammate load, stale WIP
+pinet new <slug> <to-handle> "<task>" [--module X]   # decompose the goal into issues
+cd <repo> && pinet login                              # (once per machine, if you also hold a repo)
+# …as issues come back in review, approve them:
+pinet approve <slug>
+```
+
+State the contract up front (in the issue or README) so workers can run in parallel. Keep the board moving — `overview` shows you what's stuck.
+
 ## Rules
 
 - Always `pinet login` once before anything else.
