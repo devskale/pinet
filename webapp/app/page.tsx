@@ -223,6 +223,7 @@ function Members({ project, me }: { project: string; me: Me }) {
   const [addName, setAddName] = useState("");
   const [addRole, setAddRole] = useState("member");
   const [inviteUrl, setInviteUrl] = useState("");
+  const [inviteTok, setInviteTok] = useState("");
   const [inst, setInst] = useState<{ name: string; text: string } | null>(null);
   const [err, setErr] = useState("");
   const load = async () => { const r = await fetch(`/api/projects/${P}/members`); if (r.ok) setMembers((await r.json()).members); };
@@ -238,7 +239,26 @@ function Members({ project, me }: { project: string; me: Me }) {
   };
   const setRole = async (name: string, role: string) => { await fetch(`/api/projects/${P}/members/${encodeURIComponent(name)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role }) }); load(); };
   const remove = async (name: string) => { await fetch(`/api/projects/${P}/members/${encodeURIComponent(name)}`, { method: "DELETE" }); load(); };
-  const invite = async () => { const r = await fetch(`/api/projects/${P}/invites`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: "member" }) }); const j = await r.json(); setInviteUrl(`${location.origin}/#invite=${j.token}`); };
+  const invite = async () => { const r = await fetch(`/api/projects/${P}/invites`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: "member" }) }); const j = await r.json(); setInviteTok(j.token); setInviteUrl(`${location.origin}/#invite=${j.token}`); };
+  const copyLink = async () => { try { await navigator.clipboard.writeText(inviteUrl); } catch {} };
+  const copyInviteInst = async () => {
+    const snippet = `# pinet invite — join project "${project}" @ ${location.origin}
+# 1) log in (register once first via /api/auth/register if you have no account):
+export PINET_URL=${location.origin}
+TOK=\$(curl -s -X POST \$PINET_URL/api/auth/login -H 'Content-Type: application/json' -d '{"name":"«your-name»","password":"«password»"}' | sed -E 's/.*"token":"([^"]+)".*/\\1/')
+# 2) accept the invite (single-use):
+curl -s -X POST \$PINET_URL/api/invites/${inviteTok}/accept -H "Authorization: Bearer \$TOK"
+# 3) work the board — project "${project}"
+PROJ=${project}
+G(){ curl -s -H "Authorization: Bearer \$TOK" \$PINET_URL\$1; }
+PP(){ curl -s -X \${2:-POST} -H "Authorization: Bearer \$TOK" -H 'Content-Type: application/json' \$PINET_URL\$1 -d "\$3"; }
+# read board:   G /api/projects/\$PROJ/issues
+# add card:     PP /api/projects/\$PROJ/issues POST '{"text":"…"}'
+# move card:    PP /api/projects/\$PROJ/issues/SLUG PATCH '{"state":"WIP"}'   # OPEN WIP FOR_REVIEW DONE
+# delete card:  curl -s -X DELETE -H "Authorization: Bearer \$TOK" \$PINET_URL/api/projects/\$PROJ/issues/SLUG`;
+    setInst({ name: "__invite__", text: snippet });
+    try { await navigator.clipboard.writeText(snippet); } catch {}
+  };
   const copyInst = async (m: Member) => {
     const snippet = `# pinet agent "${m.name}" — project "${project}" @ ${location.origin}
 # replace «password» with the agent's password, then paste into the agent
@@ -260,9 +280,9 @@ PP(){ curl -s -X \${2:-POST} -H "Authorization: Bearer \$TOK" -H 'Content-Type: 
       <div className="members">
         {members.map((m) => (
           <div className="member-wrap" key={m.name}>
-            <div className="member">
+            <div className="member-row">
               <span className="m-name">{m.name}</span>
-              <span className={"role " + m.role}>{m.role}</span>
+              {!(manager && m.role !== "owner") && <span className={"role " + m.role}>{m.role}</span>}
               <span className="muted kind">{m.kind}</span>
               {m.kind === "agent" && <button className="link" onClick={() => copyInst(m)}>copy</button>}
               {manager && m.role !== "owner" && (
@@ -285,8 +305,17 @@ PP(){ curl -s -X \${2:-POST} -H "Authorization: Bearer \$TOK" -H 'Content-Type: 
           </div>
           <div className="row" style={{ marginTop: 8 }}>
             <button onClick={invite}>create invite link</button>
-            {inviteUrl && <input readOnly value={inviteUrl} onFocus={(e) => e.target.select()} />}
           </div>
+          {inviteTok && (
+            <>
+              <div className="row" style={{ marginTop: 6 }}>
+                <input readOnly value={inviteUrl} onFocus={(e) => e.target.select()} />
+                <button onClick={copyLink}>copy link</button>
+                <button onClick={copyInviteInst}>copy agent instructions</button>
+              </div>
+              {inst?.name === "__invite__" && <textarea className="inst" readOnly value={inst.text} onFocus={(e) => e.target.select()} />}
+            </>
+          )}
         </>
       ) : (
         <div className="muted" style={{ marginTop: 8 }}>ask an owner/admin to add members</div>
