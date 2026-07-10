@@ -69,3 +69,13 @@ button.link:hover { color: var(--text); }
 .card2-actions { display: flex; gap: 4px; margin-top: 6px; }
 .card2-actions button { padding: 3px 8px; font-size: 13px; line-height: 1; }
 .card2-actions .del { margin-left: auto; color: var(--danger); }
+
+.panel { margin-bottom: 16px; }
+.members { display: flex; flex-direction: column; gap: 6px; }
+.member { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.member .m-name { font-weight: 600; min-width: 130px; }
+.member .kind { font-size: 11px; }
+.member select { width: auto; padding: 3px 6px; font-size: 12px; }
+.role { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+.role.owner { color: #e2c37e; border-color: #e2c37e; }
+.role.admin { color: var(--accent); border-color: var(--accent); }

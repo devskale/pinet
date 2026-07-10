@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 type Me = { name: string; kind: "user" | "agent" };
 type Issue = { slug: string; state: string; from: string; date: string; text: string; column: string };
+type Member = { name: string; kind: "user" | "agent"; role: string };
 
 const COLS = [
   { col: "backlog", label: "Backlog", state: "OPEN" },
@@ -12,6 +13,7 @@ const COLS = [
   { col: "archive", label: "Done", state: "DONE" },
 ];
 const ORDER = COLS.map((c) => c.col);
+const ROLES = ["admin", "member"];
 
 export default function Page() {
   const [me, setMe] = useState<Me | null>(null);
@@ -23,15 +25,16 @@ export default function Page() {
     setMe(r.ok ? (await r.json()).user : null);
     setReady(true);
   }, []);
+  useEffect(() => { refreshMe(); }, [refreshMe]);
 
+  // accept an invite link (#invite=token) once logged in
   useEffect(() => {
-    refreshMe();
-  }, [refreshMe]);
-
-  useEffect(() => {
-    if (me) {
-      const p = localStorage.getItem("pinet.project");
-      if (p) setProject(p);
+    const m = window.location.hash.match(/invite=([a-f0-9]+)/);
+    if (me && m) {
+      fetch(`/api/invites/${m[1]}/accept`, { method: "POST" }).then(() => {
+        history.replaceState(null, "", window.location.pathname);
+        setProject(null);
+      });
     }
   }, [me]);
 
@@ -44,31 +47,50 @@ export default function Page() {
 
   if (!ready) return null;
   if (!me) return <Auth onDone={refreshMe} />;
-  if (!project) return <Projects me={me} onPick={setProject} onLogout={logout} />;
-  return <Board me={me} project={project} onLeave={() => { localStorage.removeItem("pinet.project"); setProject(null); }} onLogout={logout} />;
+  if (!project) return <Projects me={me} onPick={(p) => { localStorage.setItem("pinet.project", p); setProject(p); }} onLogout={logout} />;
+  return (
+    <Board
+      me={me}
+      project={project}
+      onLeave={() => { localStorage.removeItem("pinet.project"); setProject(null); }}
+      onLogout={logout}
+    />
+  );
 }
 
-/* ---------- Auth ---------- */
+/* ---------- Auth (login / register / reset) ---------- */
 function Auth({ onDone }: { onDone: () => void }) {
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<"login" | "register" | "reset">("login");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [kind, setKind] = useState<"user" | "agent">("user");
-  const [error, setError] = useState("");
+  const [token, setToken] = useState("");
+  const [next, setNext] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
-    const r = await fetch(`/api/auth/${mode}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(mode === "register" ? { name, password, kind } : { name, password }),
-    });
-    if (!r.ok) {
-      setError(((await r.json().catch(() => ({}))) as { error?: string }).error || "failed");
-      return;
-    }
-    onDone();
+    setMsg(""); setBusy(true);
+    try {
+      if (mode === "login" || mode === "register") {
+        const body = mode === "register" ? { name, password, kind } : { name, password };
+        const r = await fetch(`/api/auth/${mode}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        setMsg(r.ok ? "" : ((await r.json()).error || "failed"));
+        if (r.ok) onDone();
+      } else {
+        if (!token) {
+          const r = await fetch("/api/auth/reset/request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+          const j = await r.json();
+          setToken(j.reset_token || "");
+          setMsg(j.reset_token ? "token generated — set a new password" : "if the account exists, a token was issued");
+        } else {
+          const r = await fetch("/api/auth/reset/confirm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, next }) });
+          setMsg(r.ok ? "password reset — log in" : ((await r.json()).error || "failed"));
+          if (r.ok) { setMode("login"); setToken(""); setNext(""); }
+        }
+      }
+    } finally { setBusy(false); }
   };
 
   return (
@@ -78,17 +100,32 @@ function Auth({ onDone }: { onDone: () => void }) {
         <div className="seg">
           <button type="button" className={mode === "login" ? "on" : ""} onClick={() => setMode("login")}>log in</button>
           <button type="button" className={mode === "register" ? "on" : ""} onClick={() => setMode("register")}>register</button>
+          <button type="button" className={mode === "reset" ? "on" : ""} onClick={() => setMode("reset")}>reset</button>
         </div>
-        <input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-        <input type="password" placeholder="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-        {mode === "register" && (
-          <div className="seg">
-            <button type="button" className={kind === "user" ? "on" : ""} onClick={() => setKind("user")}>human</button>
-            <button type="button" className={kind === "agent" ? "on" : ""} onClick={() => setKind("agent")}>agent</button>
-          </div>
+        {mode !== "login" && mode !== "register" ? (
+          <>
+            <input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+            {token ? (
+              <>
+                <input placeholder="reset token" value={token} onChange={(e) => setToken(e.target.value)} />
+                <input type="password" placeholder="new password" value={next} onChange={(e) => setNext(e.target.value)} />
+              </>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+            <input type="password" placeholder="password (min 8)" value={password} onChange={(e) => setPassword(e.target.value)} />
+            {mode === "register" && (
+              <div className="seg">
+                <button type="button" className={kind === "user" ? "on" : ""} onClick={() => setKind("user")}>human</button>
+                <button type="button" className={kind === "agent" ? "on" : ""} onClick={() => setKind("agent")}>agent</button>
+              </div>
+            )}
+          </>
         )}
-        {error && <div className="error">{error}</div>}
-        <button type="submit" className="primary">{mode === "login" ? "log in" : "register"}</button>
+        {msg && <div className={msg.includes("reset —") || msg.includes("generated") || msg.includes("issued") ? "muted" : "error"}>{msg}</div>}
+        <button type="submit" className="primary" disabled={busy}>{mode === "reset" ? (token ? "set new password" : "get reset token") : mode}</button>
       </form>
     </div>
   );
@@ -98,82 +135,43 @@ function Auth({ onDone }: { onDone: () => void }) {
 function Projects({ me, onPick, onLogout }: { me: Me; onPick: (p: string) => void; onLogout: () => void }) {
   const [names, setNames] = useState<string[]>([]);
   const [nu, setNu] = useState("");
-  const load = async () => {
-    const r = await fetch("/api/projects");
-    if (r.ok) setNames((await r.json()).projects.map((p: { name: string }) => p.name));
-  };
+  const load = async () => { const r = await fetch("/api/projects"); if (r.ok) setNames((await r.json()).projects.map((p: { name: string }) => p.name)); };
   useEffect(() => { load(); }, []);
   const create = async () => {
     if (!nu.trim()) return;
     await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: nu.trim() }) });
-    setNu("");
-    load();
+    setNu(""); load();
   };
-  const enter = (n: string) => { localStorage.setItem("pinet.project", n); onPick(n); };
-
   return (
     <div className="screen">
       <div className="card wide">
-        <div className="topbar">
-          <h1>projects</h1>
-          <div className="who">{me.name} · {me.kind} <button className="link" onClick={onLogout}>log out</button></div>
-        </div>
+        <div className="topbar"><h1>projects</h1><div className="who">{me.name} · {me.kind} <button className="link" onClick={onLogout}>log out</button></div></div>
         <div className="proj-grid">
-          {names.map((n) => (
-            <button key={n} className="proj-card" onClick={() => enter(n)}>{n}</button>
-          ))}
-          {names.length === 0 && <div className="muted">no projects yet — create one</div>}
+          {names.map((n) => <button key={n} className="proj-card" onClick={() => onPick(n)}>{n}</button>)}
+          {names.length === 0 && <div className="muted">no projects yet — create one, then add members</div>}
         </div>
-        <div className="row">
-          <input placeholder="new project name" value={nu} onChange={(e) => setNu(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
-          <button className="primary" onClick={create}>create</button>
-        </div>
+        <div className="row"><input placeholder="new project name" value={nu} onChange={(e) => setNu(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} /><button className="primary" onClick={create}>create</button></div>
       </div>
     </div>
   );
 }
 
-/* ---------- Board ---------- */
+/* ---------- Board + members + account ---------- */
 function Board({ me, project, onLeave, onLogout }: { me: Me; project: string; onLeave: () => void; onLogout: () => void }) {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [panel, setPanel] = useState<null | "members" | "account">(null);
 
-  const load = async () => {
-    const r = await fetch(`/api/projects/${encodeURIComponent(project)}/issues`);
-    if (r.ok) setIssues((await r.json()).issues);
-  };
+  const P = encodeURIComponent(project);
+  const load = async () => { const r = await fetch(`/api/projects/${P}/issues`); if (r.ok) setIssues((await r.json()).issues); };
   useEffect(() => { load(); }, [project]);
 
-  const add = async () => {
-    if (!draft.trim()) return;
-    await fetch(`/api/projects/${encodeURIComponent(project)}/issues`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: draft }),
-    });
-    setDraft("");
-    load();
-  };
-  const move = async (it: Issue, to: string) => {
-    await fetch(`/api/projects/${encodeURIComponent(project)}/issues/${it.slug}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: to }),
-    });
-    load();
-  };
-  const saveEdit = async () => {
-    if (editing) {
-      await fetch(`/api/projects/${encodeURIComponent(project)}/issues/${editing}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: editText }),
-      });
-      setEditing(null);
-      load();
-    }
-  };
-  const del = async (slug: string) => {
-    await fetch(`/api/projects/${encodeURIComponent(project)}/issues/${slug}`, { method: "DELETE" });
-    load();
-  };
-
+  const add = async () => { if (!draft.trim()) return; await fetch(`/api/projects/${P}/issues`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: draft }) }); setDraft(""); load(); };
+  const move = async (it: Issue, to: string) => { await fetch(`/api/projects/${P}/issues/${it.slug}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: to }) }); load(); };
+  const saveEdit = async () => { if (editing) { await fetch(`/api/projects/${P}/issues/${editing}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: editText }) }); setEditing(null); load(); } };
+  const del = async (slug: string) => { await fetch(`/api/projects/${P}/issues/${slug}`, { method: "DELETE" }); load(); };
   const idx = (col: string) => ORDER.indexOf(col);
 
   return (
@@ -181,8 +179,14 @@ function Board({ me, project, onLeave, onLogout }: { me: Me; project: string; on
       <div className="topbar">
         <button className="link" onClick={onLeave}>← projects</button>
         <h1>{project}</h1>
-        <div className="who">{me.name} · {me.kind} <button className="link" onClick={onLogout}>log out</button></div>
+        <button className="link" onClick={() => setPanel(panel === "members" ? null : "members")}>members</button>
+        <button className="link" onClick={() => setPanel(panel === "account" ? null : "account")}>account</button>
+        <div className="who">{me.name}</div>
       </div>
+
+      {panel === "members" && <Members project={project} me={me} />}
+      {panel === "account" && <Account onLogout={onLogout} />}
+
       <div className="newcard row">
         <input placeholder="add a card…" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
         <button className="primary" onClick={add}>add</button>
@@ -209,6 +213,84 @@ function Board({ me, project, onLeave, onLogout }: { me: Me; project: string; on
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function Members({ project, me }: { project: string; me: Me }) {
+  const P = encodeURIComponent(project);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [addName, setAddName] = useState("");
+  const [addRole, setAddRole] = useState("member");
+  const [inviteUrl, setInviteUrl] = useState("");
+  const [err, setErr] = useState("");
+  const load = async () => { const r = await fetch(`/api/projects/${P}/members`); if (r.ok) setMembers((await r.json()).members); };
+  useEffect(() => { load(); }, [project]);
+  const meRole = members.find((m) => m.name === me.name)?.role;
+  const manager = meRole === "owner" || meRole === "admin";
+
+  const add = async () => {
+    setErr("");
+    const r = await fetch(`/api/projects/${P}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: addName, role: addRole }) });
+    if (!r.ok) setErr(((await r.json()).error));
+    else { setAddName(""); load(); }
+  };
+  const setRole = async (name: string, role: string) => { await fetch(`/api/projects/${P}/members/${encodeURIComponent(name)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role }) }); load(); };
+  const remove = async (name: string) => { await fetch(`/api/projects/${P}/members/${encodeURIComponent(name)}`, { method: "DELETE" }); load(); };
+  const invite = async () => { const r = await fetch(`/api/projects/${P}/invites`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: "member" }) }); const j = await r.json(); setInviteUrl(`${location.origin}/#invite=${j.token}`); };
+
+  return (
+    <div className="card panel">
+      <div className="members">
+        {members.map((m) => (
+          <div className="member" key={m.name}>
+            <span className="m-name">{m.name}</span>
+            <span className={"role " + m.role}>{m.role}</span>
+            <span className="muted kind">{m.kind}</span>
+            {manager && m.role !== "owner" && (
+              <>
+                <select value={m.role} onChange={(e) => setRole(m.name, e.target.value)}>{["member", "admin"].map((r) => <option key={r} value={r}>{r}</option>)}</select>
+                <button className="link" onClick={() => remove(m.name)}>remove</button>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+      {manager ? (
+        <>
+          <div className="row" style={{ marginTop: 10 }}>
+            <input placeholder="add existing user/agent by name" value={addName} onChange={(e) => setAddName(e.target.value)} />
+            <select value={addRole} onChange={(e) => setAddRole(e.target.value)}>{ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select>
+            <button className="primary" onClick={add}>add</button>
+          </div>
+          <div className="row" style={{ marginTop: 8 }}>
+            <button onClick={invite}>create invite link</button>
+            {inviteUrl && <input readOnly value={inviteUrl} onFocus={(e) => e.target.select()} />}
+          </div>
+        </>
+      ) : (
+        <div className="muted" style={{ marginTop: 8 }}>ask an owner/admin to add members</div>
+      )}
+      {err && <div className="error" style={{ marginTop: 8 }}>{err}</div>}
+    </div>
+  );
+}
+
+function Account({ onLogout }: { onLogout: () => void }) {
+  const [cur, setCur] = useState("");
+  const [next, setNext] = useState("");
+  const [msg, setMsg] = useState("");
+  const change = async () => {
+    const r = await fetch("/api/auth/password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ current: cur, next }) });
+    setMsg(r.ok ? "password changed" : ((await r.json()).error || "failed"));
+    if (r.ok) { setCur(""); setNext(""); }
+  };
+  return (
+    <div className="card panel">
+      <div className="row"><input type="password" placeholder="current password" value={cur} onChange={(e) => setCur(e.target.value)} /></div>
+      <div className="row" style={{ marginTop: 6 }}><input type="password" placeholder="new password (min 8)" value={next} onChange={(e) => setNext(e.target.value)} /></div>
+      <div className="row" style={{ marginTop: 8 }}><button className="primary" onClick={change}>change password</button><div className={msg === "password changed" ? "muted" : "error"}>{msg}</div></div>
+      <div className="row" style={{ marginTop: 10 }}><button className="link" onClick={onLogout}>log out</button></div>
     </div>
   );
 }

@@ -1,25 +1,21 @@
-import { Q } from "@/lib/db";
-import { create, list } from "@/lib/issues";
+import { ctxFor } from "@/lib/access";
 import { err } from "@/lib/http";
-import { userFromRequest } from "@/lib/session";
+import { create, list } from "@/lib/issues";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: Promise<{ project: string }> }) {
-  const user = userFromRequest(req);
-  if (!user) return err("not authenticated", 401);
   const { project } = await params;
-  if (!Q.projectByName(decodeURIComponent(project))) return err("no such project", 404);
-  return Response.json({ project, issues: list(decodeURIComponent(project)) });
+  const c = ctxFor(req, decodeURIComponent(project));
+  if (c instanceof Response) return c;
+  return Response.json({ project: c.project.name, issues: list(c.project.name) });
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ project: string }> }) {
-  const user = userFromRequest(req);
-  if (!user) return err("not authenticated", 401);
   const { project } = await params;
-  const p = decodeURIComponent(project);
-  if (!Q.projectByName(p)) return err("no such project", 404);
+  const c = ctxFor(req, decodeURIComponent(project));
+  if (c instanceof Response) return c;
   const { text } = (await req.json().catch(() => ({}))) as { text?: string };
   if (!text || !text.trim()) return err("text required");
-  return Response.json({ issue: create(p, user.name, text) });
+  return Response.json({ issue: create(c.project.name, c.user.name, text) });
 }
