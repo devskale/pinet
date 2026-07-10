@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ALL_COLUMNS, STATE_COLUMN, VALID_STATES } from "./constants";
-import { parseFrontmatter, section, serialize, type Issue } from "./frontmatter";
+import { parseComments, parseFrontmatter, section, serialize, type Comment, type Issue } from "./frontmatter";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 
@@ -24,6 +24,7 @@ function readIssue(filePath: string, column: string): Issue {
     module: fm.module ?? null,
     task: section(body, "Task"),
     context: section(body, "Context"),
+    comments: parseComments(body),
     column,
     path: path.relative(DATA_DIR, filePath),
   };
@@ -71,6 +72,7 @@ export function createIssue(
       module: opts.module ?? null,
       task: opts.task,
       context: opts.context || "",
+      comments: [],
     }),
   );
   return readIssue(file, "backlog");
@@ -96,8 +98,34 @@ export function moveIssue(projectName: string, slug: string, newState: string): 
       module: fm.module ?? issue.module,
       task: section(body, "Task"),
       context: section(body, "Context"),
+      comments: parseComments(body), // preserved across moves
     }),
   );
   if (src !== dst) fs.unlinkSync(src);
   return readIssue(dst, newCol);
+}
+
+export function addComment(projectName: string, slug: string, author: string, text: string): Issue {
+  const issue = findIssue(projectName, slug);
+  if (!issue) throw new Error(`issue '${slug}' not found`);
+  const comment: Comment = {
+    author,
+    date: new Date().toISOString().slice(0, 16).replace("T", " "),
+    text,
+  };
+  const file = path.join(DATA_DIR, issue.path);
+  fs.writeFileSync(
+    file,
+    serialize({
+      state: issue.state,
+      from: issue.from,
+      to: issue.to,
+      date: issue.date,
+      module: issue.module,
+      task: issue.task,
+      context: issue.context,
+      comments: [...issue.comments, comment],
+    }),
+  );
+  return readIssue(file, issue.column);
 }

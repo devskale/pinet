@@ -12,6 +12,7 @@ type Issue = {
   task: string;
   context: string;
   column: string;
+  comments?: { author: string; date: string; text: string }[];
 };
 
 const COLS = [
@@ -98,6 +99,7 @@ export default function Board({ me }: { me: { handle: string } | null }) {
                   <div className="muted meta">
                     {i.from} → {i.to || "–"}
                     {i.module ? ` · ${i.module}` : ""}
+                    {(i.comments?.length ?? 0) > 0 ? ` · 💬 ${i.comments?.length ?? 0}` : ""}
                   </div>
                   <div className="task">{i.task}</div>
                   <select defaultValue={i.state} onChange={(e) => move(i.slug, e.target.value)}>

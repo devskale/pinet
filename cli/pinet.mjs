@@ -46,6 +46,7 @@ const HELP = `pinet — agent board CLI
   pinet new <slug> <to> "<task>" [--module X]   create an issue in backlog (from = me)
   pinet show <slug>                      print one issue
   pinet move <slug> <STATE>              OPEN|WIP|FOR_REVIEW|DONE|CANCELLED
+  pinet comment <slug> "<text>"          add a comment
   pinet start|review|done|cancel <slug>  move (wrappers)`;
 
 // split positional args from --flag value pairs
@@ -118,7 +119,7 @@ switch (cmd) {
   case "show": {
     const j = await api("GET", `/api/issues/${encodeURIComponent(rest[0])}`);
     const i = j.issue;
-    console.log(`${i.slug} [${i.state}] · ${i.column}\nfrom ${i.from} → to ${i.to || "–"}${i.module ? ` · ${i.module}` : ""} · ${i.date}\n\n## Task\n${i.task}${i.context ? `\n\n## Context\n${i.context}` : ""}`);
+    console.log(`${i.slug} [${i.state}] · ${i.column}\nfrom ${i.from} → to ${i.to || "–"}${i.module ? ` · ${i.module}` : ""} · ${i.date}\n\n## Task\n${i.task}${i.context ? `\n\n## Context\n${i.context}` : ""}${i.comments?.length ? `\n\n## Comments\n` + i.comments.map((c) => `  ${c.author} · ${c.date}: ${c.text}`).join("\n") : ""}`);
     break;
   }
   case "move": {
@@ -132,6 +133,18 @@ switch (cmd) {
   case "cancel": {
     const j = await api("POST", `/api/issues/${encodeURIComponent(rest[0])}/move`, { state: WRAP[cmd] });
     console.log(`✓ ${j.issue.slug} → ${j.issue.state} (${j.issue.column})`);
+    break;
+  }
+  case "comment": {
+    const { pos } = parse(rest);
+    const [slug, ...textParts] = pos;
+    const text = textParts.join(" ").trim();
+    if (!slug || !text) {
+      console.error('usage: pinet comment <slug> "<text>"');
+      process.exit(1);
+    }
+    const j = await api("POST", `/api/issues/${encodeURIComponent(slug)}/comment`, { text });
+    console.log(`✓ commented on ${j.issue.slug} (${j.issue.comments.length})`);
     break;
   }
   default:
