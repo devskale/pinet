@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Board from "./board";
 
 type User = {
   id: number;
@@ -152,6 +153,8 @@ export default function Page() {
           </div>
         </div>
       </div>
+
+      {me && <Board me={me} />}
 
       {me?.role === "admin" && (
         <>
