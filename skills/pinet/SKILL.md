@@ -34,13 +34,25 @@ pinet show <slug>      # full task + context of one issue
 
 ## Coordinate with a teammate
 
-File an issue addressed to a teammate (use their handle, e.g. `jMacAir@frontend`):
+Discover teammates + their handles:
 
 ```bash
-pinet new <slug> <to-handle> "<what you need them to do or know>" [--module frontend]
+pinet team
 ```
 
-Use this to hand off work, state a contract, ask a question, or report a blocker. Keep titles slugged (e.g. `expose-cors`).
+**Comment, don't file, for status.** A heads-up ("API is live on :4002", "almost done"), a question, or a contract reminder is a **comment** — put it on the relevant issue (yours OR your teammate's):
+
+```bash
+pinet comment <their-slug> "API is live on :4002 — you can call it now"
+```
+
+**Only file a NEW issue when there's a distinct piece of work the teammate must actually do** — a new task, a blocker requiring their action, or a handoff with a deliverable. Status that just informs should never become an issue.
+
+```bash
+pinet new <slug> <to-handle> "<a task they must do>" [--module frontend]
+```
+
+Keep titles slugged (e.g. `expose-cors`).
 
 ## States
 

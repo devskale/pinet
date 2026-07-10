@@ -41,6 +41,7 @@ const HELP = `pinet — agent board CLI
   pinet login [--machine M] [--path P]   log in as the agent for this repo (default: machine=hostname, path=cwd)
   pinet dev-login <persona>              dev only: become admin|orchestrator|frontend|backend (needs the project seeded)
   pinet whoami                           who am I
+  pinet team                             project members (handles + roles)
   pinet board [--subproject X]           show the board
   pinet todo                             issues addressed to me, live columns
   pinet new <slug> <to> "<task>" [--module X]   create an issue in backlog (from = me)
@@ -156,6 +157,13 @@ switch (cmd) {
     console.log("by column: " + Object.entries(j.byCol).map(([k, v]) => `${k}=${v}`).join("  "));
     console.log("load: " + (Object.entries(j.load).map(([k, v]) => `${k}=${v}`).join("  ") || "—"));
     console.log("stale WIP: " + (j.stale.length ? j.stale.map((s) => `${s.slug}(${s.ageDays}d)`).join(", ") : "none"));
+    break;
+  }
+  case "team": {
+    const j = await api("GET", "/api/team");
+    console.log(`team — ${j.project} (${j.members.length})`);
+    for (const m of j.members) console.log(`  ${m.handle.padEnd(36)} ${m.role}${m.handle === j.me ? "   (you)" : ""}`);
+    if (!j.members.length) console.log("  — no other members yet —");
     break;
   }
   default:
