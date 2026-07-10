@@ -26,6 +26,8 @@ const STATES = ["OPEN", "WIP", "FOR_REVIEW", "DONE", "CANCELLED"] as const;
 
 export default function Board({ me }: { me: { handle: string } | null }) {
   const [issues, setIssues] = useState<Issue[]>([]);
+  const [sel, setSel] = useState<string | null>(null);
+  const [comment, setComment] = useState("");
   const [slug, setSlug] = useState("");
   const [to, setTo] = useState("");
   const [task, setTask] = useState("");
@@ -60,8 +62,19 @@ export default function Board({ me }: { me: { handle: string } | null }) {
     });
     load();
   };
+  const postComment = async () => {
+    if (!sel || !comment.trim()) return;
+    await fetch(`/api/issues/${encodeURIComponent(sel)}/comment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: comment }),
+    });
+    setComment("");
+    load();
+  };
 
   if (!me) return null;
+  const selected = issues.find((i) => i.slug === sel) || null;
 
   return (
     <>
@@ -69,8 +82,8 @@ export default function Board({ me }: { me: { handle: string } | null }) {
       <div className="card">
         <div className="row">
           <input placeholder="slug" value={slug} onChange={(e) => setSlug(e.target.value)} style={{ flex: "0 0 160px", width: "auto" }} />
-          <input placeholder="to (e.g. mac@klark0)" value={to} onChange={(e) => setTo(e.target.value)} style={{ flex: "0 0 190px", width: "auto" }} />
-          <input placeholder="module (klark0 / python-utils)" value={mod} onChange={(e) => setMod(e.target.value)} style={{ flex: "0 0 200px", width: "auto" }} />
+          <input placeholder="to (e.g. mac@proj/frontend)" value={to} onChange={(e) => setTo(e.target.value)} style={{ flex: "0 0 200px", width: "auto" }} />
+          <input placeholder="module" value={mod} onChange={(e) => setMod(e.target.value)} style={{ flex: "0 0 160px", width: "auto" }} />
         </div>
         <div className="row">
           <input placeholder="task" value={task} onChange={(e) => setTask(e.target.value)} />
@@ -79,9 +92,6 @@ export default function Board({ me }: { me: { handle: string } | null }) {
             refresh
           </button>
         </div>
-        <p className="muted" style={{ margin: 0 }}>
-          Issues land in <code>backlog</code> (OPEN) addressed <code>from</code> you <code>to</code> the assignee.
-        </p>
       </div>
 
       <h2>Board</h2>
@@ -94,12 +104,14 @@ export default function Board({ me }: { me: { handle: string } | null }) {
                 <strong>{c.label}</strong> <span className="muted">{items.length}</span>
               </div>
               {items.map((i) => (
-                <div key={i.slug} className="card card-sm">
-                  <div className="slug">{i.slug}</div>
+                <div key={i.slug} className={`card card-sm${selected?.slug === i.slug ? " selected" : ""}`}>
+                  <div className="slug" onClick={() => setSel(i.slug)} style={{ cursor: "pointer" }}>
+                    {i.slug}
+                  </div>
                   <div className="muted meta">
                     {i.from} → {i.to || "–"}
                     {i.module ? ` · ${i.module}` : ""}
-                    {(i.comments?.length ?? 0) > 0 ? ` · 💬 ${i.comments?.length ?? 0}` : ""}
+                    {(i.comments?.length ?? 0) > 0 ? ` · 💬 ${i.comments?.length}` : ""}
                   </div>
                   <div className="task">{i.task}</div>
                   <select defaultValue={i.state} onChange={(e) => move(i.slug, e.target.value)}>
@@ -116,6 +128,52 @@ export default function Board({ me }: { me: { handle: string } | null }) {
           );
         })}
       </div>
+
+      {selected && (
+        <>
+          <h2>
+            {selected.slug}{" "}
+            <button className="ghost" style={{ marginLeft: 8 }} onClick={() => setSel(null)}>
+              close
+            </button>
+          </h2>
+          <div className="card">
+            <div className="muted meta" style={{ marginBottom: 8 }}>
+              [{selected.state}] · {selected.column} · {selected.from} → {selected.to || "–"}
+              {selected.module ? ` · ${selected.module}` : ""} · {selected.date}
+            </div>
+            <h3 className="sub-h">Task</h3>
+            <div className="task">{selected.task}</div>
+            {selected.context && (
+              <>
+                <h3 className="sub-h">Context</h3>
+                <div className="task">{selected.context}</div>
+              </>
+            )}
+            <h3 className="sub-h">Comments ({selected.comments?.length ?? 0})</h3>
+            <div className="comments">
+              {(selected.comments ?? []).map((c, idx) => (
+                <div key={idx} className="comment">
+                  <div className="muted meta">
+                    <strong>{c.author}</strong> · {c.date}
+                  </div>
+                  <div>{c.text}</div>
+                </div>
+              ))}
+              {(selected.comments ?? []).length === 0 && <div className="muted empty">no comments</div>}
+            </div>
+            <div className="row" style={{ marginTop: 10 }}>
+              <input
+                placeholder="add a comment…"
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && postComment()}
+              />
+              <button onClick={postComment}>comment</button>
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }
