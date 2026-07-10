@@ -1,4 +1,4 @@
-import { Q } from "@/lib/db";
+import { Q, type Role } from "@/lib/db";
 import { err } from "@/lib/http";
 import { resolveAgentIdentity } from "@/lib/identity";
 import { newToken, setCookie } from "@/lib/session";
@@ -13,6 +13,12 @@ const PERSONAS = {
   backend: { machine: "pi5", path: "~/code/kontext.one/python-utils" },
 } as const;
 type Persona = keyof typeof PERSONAS;
+const ROLE: Record<Persona, Role> = {
+  admin: "admin",
+  orchestrator: "orchestrator",
+  frontend: "frontend",
+  backend: "backend",
+};
 
 export async function POST(req: Request) {
   if (process.env.NODE_ENV === "production") return err("dev login disabled in production", 404);
@@ -43,14 +49,14 @@ export async function POST(req: Request) {
         machine,
         project_id: ident.project.id,
         subproject_id: ident.subproject?.id ?? null,
-        role: ident.role,
+        role: ROLE[persona],
         display_name: ident.subproject?.name ?? ident.project.name,
       });
   }
 
   const token = newToken();
   Q.sessionCreate(user.id, token);
-  const res = Response.json({ user });
+  const res = Response.json({ user, token });
   res.headers.set("Set-Cookie", setCookie(token)); // dev login sets a cookie so the browser "becomes" the persona
   return res;
 }

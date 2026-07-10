@@ -5,7 +5,6 @@ import { Q } from "./db";
 export interface Resolved {
   project: { id: number; name: string };
   subproject: { id: number; name: string } | null;
-  role: "orchestrator" | "worker";
   handle: string;
   assignment: string;
 }
@@ -17,36 +16,24 @@ export function defaultMachine(): string {
 
 /**
  * Resolve an agent identity from a repo path + machine.
- *   path == a project root_path   → orchestrator (project-wide)
- *   path == a subproject path     → worker on that subproject
+ *   path == a project root_path   → project-wide (no subproject)
+ *   path == a subproject path     → that subproject
  *   otherwise                     → error (unknown repo)
- * Role is implicit from path depth — no admin assignment needed.
+ * Role is NOT implied here — agents log in neutral ("worker"); the admin assigns role.
  */
 export function resolveAgentIdentity(machine: string, inputPath: string): Resolved {
   const abs = path.resolve(inputPath.replace(/^~(?=$|\/|\\)/, os.homedir()));
 
   const proj = Q.projectByRoot(abs);
   if (proj) {
-    return {
-      project: proj,
-      subproject: null,
-      role: "orchestrator",
-      handle: `${machine}@${proj.name}`,
-      assignment: proj.name,
-    };
+    return { project: proj, subproject: null, handle: `${machine}@${proj.name}`, assignment: proj.name };
   }
 
   const sub = Q.subprojectByPath(abs);
   if (sub) {
     const project = Q.projectById(sub.project_id);
     if (!project) throw new Error(`orphan subproject ${sub.name}`);
-    return {
-      project,
-      subproject: sub,
-      role: "worker",
-      handle: `${machine}@${sub.name}`,
-      assignment: `${project.name}/${sub.name}`,
-    };
+    return { project, subproject: sub, handle: `${machine}@${sub.name}`, assignment: `${project.name}/${sub.name}` };
   }
 
   throw new Error(`Unknown repo path: ${abs}. Register it as a project/subproject first.`);

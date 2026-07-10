@@ -28,7 +28,7 @@ export async function POST(req: Request) {
       machine: m,
       project_id: ident.project.id,
       subproject_id: ident.subproject?.id ?? null,
-      role: ident.role,
+      role: "worker",
       display_name: ident.subproject?.name ?? ident.project.name,
     });
   }
@@ -39,6 +39,6 @@ export async function POST(req: Request) {
     token, // agents use this as Bearer; humans use the cookie
     user,
     assignment: ident.assignment,
-    role: ident.role,
+    role: "worker",
   });
 }

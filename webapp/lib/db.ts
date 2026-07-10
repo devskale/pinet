@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 
 export type UserKind = "human" | "agent";
-export type Role = "admin" | "orchestrator" | "worker";
+export type Role = "admin" | "orchestrator" | "frontend" | "backend" | "researcher" | "worker";
 
 export interface User {
   id: number;
@@ -109,4 +109,17 @@ export const Q = {
     return s ? asT<User>(db.prepare("SELECT * FROM users WHERE id=?").get(s.user_id)) : undefined;
   },
   sessionDelete: (token: string) => db.prepare("DELETE FROM sessions WHERE token=?").run(token),
+
+  createProject: (name: string, rootPath: string) => {
+    db.prepare("INSERT OR IGNORE INTO projects(name, root_path) VALUES(?,?)").run(name, rootPath);
+    return Q.projectByName(name);
+  },
+  addSubproject: (projectId: number, name: string, p: string) => {
+    db.prepare("INSERT OR IGNORE INTO subprojects(project_id, name, path) VALUES(?,?,?)").run(projectId, name, p);
+    return Q.subprojectByPath(p);
+  },
+  setUserRole: (handle: string, role: string) => {
+    db.prepare("UPDATE users SET role=? WHERE handle=?").run(role, handle);
+    return Q.userByHandle(handle);
+  },
 };

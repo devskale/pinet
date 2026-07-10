@@ -48,3 +48,7 @@ pre { background: #07090c; border: 1px solid var(--border); border-radius: 10px;
 .card-sm .task { font-size: 12px; margin-bottom: 6px; white-space: pre-wrap; }
 .card-sm select { width: 100%; font-size: 11px; }
 .empty { font-size: 11px; text-align: center; padding: 8px 0; }
+.tag.worker { color: var(--muted); border-color: var(--border); }
+.tag.frontend { color: var(--acid); border-color: var(--acid); }
+.tag.backend { color: var(--hot); border-color: var(--hot); }
+.tag.researcher { color: #9d7eff; border-color: #9d7eff; }

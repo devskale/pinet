@@ -24,7 +24,7 @@ export default function Page() {
   const [machine, setMachine] = useState("mac");
   const [repoPath, setRepoPath] = useState("~/code/kontext.one/klark0");
   const [last, setLast] = useState<unknown>(null);
-  const [state, setState] = useState<unknown>(null);
+  const [state, setState] = useState<{ projects: any[]; users: any[] } | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function refreshMe() {
@@ -77,7 +77,15 @@ export default function Page() {
 
   const loadState = async () => {
     const s = await fetch("/api/admin/state");
-    setState(s.ok ? await s.json() : { error: "admin only", status: s.status });
+    setState(s.ok ? await s.json() : null);
+  };
+  const assignRole = async (handle: string, role: string) => {
+    await fetch("/api/admin/assign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handle, role }),
+    });
+    loadState();
   };
 
   return (
@@ -176,15 +184,49 @@ export default function Page() {
 
       {me && <Board me={me} />}
 
-      {me?.role === "admin" && (
+      {me?.role === "admin" && state && (
         <>
           <h2>
-            Admin overview{" "}
+            Admin · roster{" "}
             <button className="ghost" style={{ marginLeft: 8 }} onClick={loadState} disabled={busy}>
               refresh
             </button>
           </h2>
-          <pre>{JSON.stringify(state, null, 2)}</pre>
+          <div className="card">
+            <div className="row">
+              <span className="muted" style={{ flex: "0 0 170px", fontSize: 12 }}>handle</span>
+              <span className="muted" style={{ flex: "0 0 70px", fontSize: 12 }}>kind</span>
+              <span className="muted" style={{ flex: "0 0 150px", fontSize: 12 }}>role</span>
+              <span className="muted" style={{ fontSize: 12 }}>project / subproject</span>
+            </div>
+            {state.users.map((u) => {
+              const proj = state.projects.find((p) => p.id === u.project_id);
+              const sub = proj?.subprojects?.find((s: any) => s.id === u.subproject_id);
+              return (
+                <div className="row" key={u.handle}>
+                  <span style={{ flex: "0 0 170px" }}>{u.handle}</span>
+                  <span className="muted" style={{ flex: "0 0 70px" }}>{u.kind}</span>
+                  <select
+                    style={{ flex: "0 0 150px" }}
+                    value={u.role}
+                    disabled={u.role === "admin"}
+                    onChange={(e) => assignRole(u.handle, e.target.value)}
+                  >
+                    {u.role === "admin" && <option value="admin">admin</option>}
+                    {["worker", "orchestrator", "frontend", "backend", "researcher"].map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="muted">
+                    {proj?.name ?? "–"}
+                    {sub ? ` / ${sub.name}` : ""}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </>
       )}
 
